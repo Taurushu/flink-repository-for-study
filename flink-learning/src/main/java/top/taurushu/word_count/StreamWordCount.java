@@ -2,6 +2,7 @@ package top.taurushu.word_count;
 
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -12,8 +13,12 @@ public class StreamWordCount {
         // 1.获取环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
+        ParameterTool argsMap = ParameterTool.fromArgs(args);
+
+        String hostname = argsMap.get("hostname");
+        int port = Integer.parseInt(argsMap.get("port"));
         // 2.获取数据源、读取数据
-        DataStreamSource<String> lineSource = env.socketTextStream("192.168.32.151", 11778);
+        DataStreamSource<String> lineSource = env.socketTextStream(hostname, port);
 
         // 3.通过lambda表达式，将lineSource转换成Tuple2格式然后收集起来，扁平映射出来
         SingleOutputStreamOperator<Tuple2<String, Long>> tuple2Return = lineSource.flatMap(
