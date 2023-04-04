@@ -9,7 +9,8 @@ public class ReadTextFileSource {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 //        env.setParallelism(1);
-        DataStreamSource<String> textFile = env.readTextFile("input/UserEvent.log");
+        DataStreamSource<String> textFile = env
+                .readTextFile("src\\main\\resources\\input\\UserEvent.log");
 //        DataStreamSource<String> socketTextStream = env.socketTextStream("node1", 17788);
 
         // 封装处理逻辑
