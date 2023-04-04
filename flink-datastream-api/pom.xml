@@ -53,12 +53,12 @@
             <version>${flink.veresion}</version>
         </dependency>
 
-        <!--                <dependency>
+        <!--        flink 连接 kafka的包-->
+        <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-kafka</artifactId>
             <version>${flink.veresion}</version>
-        </dependency>flink 连接 kafka的包-->
-
+        </dependency>
 
         <!--        slf4j包 log4j-->
         <dependency>
