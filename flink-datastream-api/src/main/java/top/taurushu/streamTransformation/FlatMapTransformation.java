@@ -1,22 +1,26 @@
 package top.taurushu.streamTransformation;
 
+
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import top.taurushu.streamSource.Event;
+import org.apache.flink.util.Collector;
 
-public class MapTransformation {
+
+import java.util.Arrays;
+
+public class FlatMapTransformation {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
 
-        DataStreamSource<String> textFile = env.readTextFile("src\\main\\resources\\input\\UserEvent.log");
+        DataStreamSource<String> wordTxt = env.readTextFile("src\\main\\resources\\input\\flatMapText.txt");
 
         // 封装处理逻辑
-        SingleOutputStreamOperator<Event> map = textFile.map(
-                s -> new Event(s.split(",")[0], s.split(",")[1], Long.valueOf(s.split(",")[2]))
-        ).returns(Types.POJO(Event.class));
+        SingleOutputStreamOperator<String> map = wordTxt.flatMap(
+                (String value, Collector<String> out) -> Arrays.stream(value.split(" ")).forEach(out::collect)
+        ).returns(Types.STRING);
 
         map.print();
 

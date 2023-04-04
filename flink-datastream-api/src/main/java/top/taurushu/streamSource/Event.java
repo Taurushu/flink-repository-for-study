@@ -1,11 +1,38 @@
 package top.taurushu.streamSource;
 
+import org.apache.flink.annotation.Public;
+
 import java.sql.Timestamp;
 
 public class Event {
-    public String name;
-    public String uri;
-    public Long time;
+
+    private String name;
+    private String uri;
+    private Long time;
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getUri() {
+        return uri;
+    }
+
+    public void setUri(String uri) {
+        this.uri = uri;
+    }
+
+    public Long getTime() {
+        return time;
+    }
+
+    public void setTime(Long time) {
+        this.time = time;
+    }
 
     public Event() {
     }
@@ -24,4 +51,5 @@ public class Event {
                 ", time=" + new Timestamp(time) +
                 '}';
     }
+
 }
