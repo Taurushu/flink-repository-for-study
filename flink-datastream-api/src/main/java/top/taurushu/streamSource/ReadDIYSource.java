@@ -2,6 +2,7 @@ package top.taurushu.streamSource;
 
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
 import java.util.Date;
@@ -10,8 +11,8 @@ import java.util.Random;
 public class ReadDIYSource {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-
-        DataStreamSource<Event> source = env.addSource(new SourceFunction<Event>() {
+        env.setParallelism(4);
+        DataStreamSource<Event> source = env.addSource(new ParallelSourceFunction<Event>() {
             private Boolean running = true;
 
             @Override
@@ -28,7 +29,7 @@ public class ReadDIYSource {
                             urls[random.nextInt(urls.length)],
                             new Date().getTime()
                     ));
-                    Thread.sleep(2000L);
+                    Thread.sleep(200L);
                 }
             }
 
@@ -36,7 +37,7 @@ public class ReadDIYSource {
             public void cancel() {
                 running = false;
             }
-        });
+        }).setParallelism(2);
 
         source.print();
 
