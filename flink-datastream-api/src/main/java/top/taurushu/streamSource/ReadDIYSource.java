@@ -3,7 +3,6 @@ package top.taurushu.streamSource;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
-import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
 import java.util.Date;
 import java.util.Random;
@@ -16,7 +15,7 @@ public class ReadDIYSource {
             private Boolean running = true;
 
             @Override
-            public void run(SourceContext<Event> sourceContext) throws Exception {
+            public void run(SourceContext<Event> sourceContext) {
 
                 Random random = new Random();
 
@@ -29,7 +28,6 @@ public class ReadDIYSource {
                             urls[random.nextInt(urls.length)],
                             new Date().getTime()
                     ));
-                    Thread.sleep(200L);
                 }
             }
 
