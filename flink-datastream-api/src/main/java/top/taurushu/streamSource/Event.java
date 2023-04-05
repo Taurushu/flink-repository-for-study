@@ -20,6 +20,7 @@ public class Event {
         return uri;
     }
 
+
     public void setUri(String uri) {
         this.uri = uri;
     }
