@@ -1,7 +1,5 @@
 package top.taurushu.streamSource;
 
-import org.apache.flink.annotation.Public;
-
 import java.sql.Timestamp;
 
 public class Event {
