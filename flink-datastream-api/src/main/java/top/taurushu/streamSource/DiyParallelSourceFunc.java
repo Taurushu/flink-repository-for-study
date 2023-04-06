@@ -28,7 +28,7 @@ public class DiyParallelSourceFunc implements ParallelSourceFunction<Event> {
                     urls[random.nextInt(urls.length)],
                     new Date().getTime()
             ));
-            Thread.sleep(200);
+            Thread.sleep(300);
             if (Calendar.getInstance().getTime().getTime() > time) {
                 cancel();
             }
