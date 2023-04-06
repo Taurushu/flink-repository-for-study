@@ -1,8 +1,5 @@
 package top.taurushu.streamSink;
 
-import org.apache.flink.api.common.typeinfo.TypeHint;
-import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.redis.RedisSink;
@@ -22,41 +19,33 @@ public class WriteRedisSink {
 
         DataStreamSource<Event> source = env.addSource(new DiyParallelSourceFunc()).setParallelism(2);
 
-        DataStream<Tuple2<String, String>> redisTuple = source.map(
-                (Event value) -> new Tuple2<>(value.getName(), value.toString())
-        ).returns(new TypeHint<Tuple2<String, String>>() {
-        });
-
         HashSet<InetSocketAddress> inetSocketAddressHashSet = new HashSet<>();
         inetSocketAddressHashSet.add(new InetSocketAddress("node1", 7000));
         inetSocketAddressHashSet.add(new InetSocketAddress("node2", 7000));
         inetSocketAddressHashSet.add(new InetSocketAddress("node3", 7000));
 
-        FlinkJedisClusterConfig conf = new FlinkJedisClusterConfig.Builder()
-                .setNodes(inetSocketAddressHashSet)
-                .build();
+        source.addSink(new RedisSink<>(
+                        new FlinkJedisClusterConfig.Builder().setNodes(inetSocketAddressHashSet).build(),
+                        new RedisMapper<Event>() {
+                            @Override
+                            public RedisCommandDescription getCommandDescription() {
+                                return new RedisCommandDescription(RedisCommand.HSET, "HASH_NAME", 3);
+                            }
 
-        redisTuple.addSink(new RedisSink<>(conf, new RedisExampleMapper()));
+                            @Override
+                            public String getKeyFromData(Event event) {
+                                return event.getName();
+                            }
+
+                            @Override
+                            public String getValueFromData(Event event) {
+                                return event.toString();
+                            }
+                        }
+                )
+        );
 
         env.execute();
-    }
-
-    static class RedisExampleMapper implements RedisMapper<Tuple2<String, String>> {
-
-        @Override
-        public RedisCommandDescription getCommandDescription() {
-            return new RedisCommandDescription(RedisCommand.HSET, "HASH_NAME");
-        }
-
-        @Override
-        public String getKeyFromData(Tuple2<String, String> data) {
-            return data.f0;
-        }
-
-        @Override
-        public String getValueFromData(Tuple2<String, String> data) {
-            return data.f1;
-        }
     }
 }
 
