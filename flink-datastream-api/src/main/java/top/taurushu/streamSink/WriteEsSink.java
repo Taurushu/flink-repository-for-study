@@ -4,6 +4,7 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.connector.elasticsearch.sink.Elasticsearch7SinkBuilder;
+import org.apache.flink.connector.elasticsearch.sink.RequestIndexer;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
@@ -34,7 +35,10 @@ public class WriteEsSink {
         returns.sinkTo(
                 new Elasticsearch7SinkBuilder<String>()
                         .setBulkFlushMaxActions(1) // Instructs the sink to emit after every element, otherwise they would be buffered
-                        .setHosts(new HttpHost("192.168.32.151", 9200, "http"))
+                        .setHosts(
+                                new HttpHost("192.168.32.151", 9200, "http"),
+                                new HttpHost("192.168.32.152", 9200, "http"),
+                                new HttpHost("192.168.32.153", 9200, "http"))
                         .setEmitter(
                                 (element, context, indexer) ->
                                         indexer.add(createIndexRequest(element)))
