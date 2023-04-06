@@ -3,22 +3,13 @@ package top.taurushu.streamSink;
 import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
 import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
 import org.apache.flink.connector.jdbc.JdbcSink;
-import org.apache.flink.connector.jdbc.JdbcStatementBuilder;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
-import org.apache.flink.streaming.connectors.redis.RedisSink;
-import org.apache.flink.streaming.connectors.redis.common.config.FlinkJedisClusterConfig;
-import org.apache.flink.streaming.connectors.redis.common.mapper.RedisCommand;
-import org.apache.flink.streaming.connectors.redis.common.mapper.RedisCommandDescription;
-import org.apache.flink.streaming.connectors.redis.common.mapper.RedisMapper;
 import top.taurushu.streamSource.DiyParallelSourceFunc;
 import top.taurushu.streamSource.Event;
 
-import java.net.InetSocketAddress;
 import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.util.HashSet;
 
 public class WriteMysqlSink {
     public static void main(String[] args) throws Exception {
