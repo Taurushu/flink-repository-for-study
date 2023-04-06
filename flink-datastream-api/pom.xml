@@ -73,7 +73,17 @@
             <version>${flink.veresion}</version>
         </dependency>
 
-
+        <!-- flink 连接 jdbc的包 -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-jdbc</artifactId>
+            <version>${flink.veresion}</version>
+        </dependency>
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>5.1.47</version>
+        </dependency>
 
         <!--        slf4j包 log4j-->
         <dependency>
