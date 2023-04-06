@@ -29,11 +29,12 @@ public class WriteKafkaSink {
 
         KafkaSink<String> sink = KafkaSink.<String>builder()
                 .setBootstrapServers("node1:9092")
-                .setRecordSerializer(KafkaRecordSerializationSchema
-                        .builder()
-                        .setTopic("output-topic")
-                        .setValueSerializationSchema(new SimpleStringSchema())
-                        .build()
+                .setRecordSerializer(
+                        KafkaRecordSerializationSchema
+                                .builder()
+                                .setTopic("output-topic")
+                                .setValueSerializationSchema(new SimpleStringSchema())
+                                .build()
                 )
                 .setDeliverGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
                 .build();
