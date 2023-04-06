@@ -1,21 +1,18 @@
 package top.taurushu.streamSource;
 
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
-import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 
-import java.time.LocalTime;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Random;
 
 public class DiyParallelSourceFunc implements ParallelSourceFunction<Event> {
     private static final Long time = Calendar.getInstance().getTime().getTime() + 20 * 1000;
-    ;
+
     private Boolean running = true;
 
     @Override
-    public void run(SourceContext<Event> sourceContext) throws InterruptedException {
+    public void run(SourceContext<Event> sourceContext) {
 
         Random random = new Random();
 
@@ -28,7 +25,6 @@ public class DiyParallelSourceFunc implements ParallelSourceFunction<Event> {
                     urls[random.nextInt(urls.length)],
                     new Date().getTime()
             ));
-            Thread.sleep(300);
             if (Calendar.getInstance().getTime().getTime() > time) {
                 cancel();
             }
