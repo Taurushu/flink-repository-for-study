@@ -36,10 +36,19 @@ public class Event {
     public Event() {
     }
 
+    public Event(String value) {
+        this(value.split(",")[0], value.split(",")[1], Long.valueOf(value.split(",")[2]));
+    }
+
     public Event(String name, String uri, Long time) {
         this.name = name;
         this.uri = uri;
         this.time = time;
+    }
+
+
+    public String toCsv() {
+        return name + ',' + uri + "," + time;
     }
 
     @Override
