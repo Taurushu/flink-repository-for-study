@@ -16,15 +16,16 @@ public class DiyParallelSourceFunc implements ParallelSourceFunction<Event> {
 
         Random random = new Random();
 
-        String[] users = {"Mary", "Lily", "Bob", "Alix"};
-        String[] urls = {"./home", "./math", "./product?id=2232"};
+        String[] users = {"Mary_", "Lily_", "Bob_", "Alix_"};
+        String[] urls = {"./home_", "./math_", "./product?id=2232_"};
 
         while (running) {
             sourceContext.collect(new Event(
-                    users[random.nextInt(users.length)],
-                    urls[random.nextInt(urls.length)],
-                    new Date().getTime()
+                    users[random.nextInt(users.length)] + random.nextInt(20),
+                    urls[random.nextInt(urls.length)] + random.nextInt(200),
+                    new Date().getTime() + random.nextInt(200) - 100
             ));
+            cancel();
             if (Calendar.getInstance().getTime().getTime() > time) {
                 cancel();
             }
