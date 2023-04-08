@@ -1299,6 +1299,459 @@ operator.print("main");
 
 ## 处理函数
 
+基本处理函数ProcessFunction
+
+基本可以获取到所有的数据：
+
+* 获取窗口对象
+* 获取水印位置
+* 获取事件时间
+* 注册定时服务
+* 实现了富函数类
+
+### 如何获取
+
+```java
+DataStream stream = ... ;
+stream.process(ProcessFunction<T, R> processFunction [, TypeInformation<R> outputType])
+```
+
+> public \<R\> SingleOutputStreamOperator\<R\> process(
+>         ProcessFunction<T, R> processFunction, TypeInformation\<R\> outputType)
+
+ProcessFunction
+
+* processElement(IN, ProcessFunction<IN, OUT>.Context, Collector\<OUT\> )
+  * Context: 获取到上下文对象
+  	* public abstract Long timestamp()：获取到当前事件时间戳
+  	* public abstract TimerService timerService()：定时器服务
+  	  * long currentProcessingTime()：当前的处理时间
+  	  * long currentWatermark()：当前水印
+  	  * void registerProcessingTimeTimer(long time)：keyedStream才能使用，注册处理时间定时器
+  	  	* 注册定时器之后需要去实现[onTimer](#onTimer)方法
+  	  * void registerEventTimeTimer(long time)：keyedStream才能使用，注册事件时间定时器
+  	  	* 注 册定时器之后需要去实现[onTimer](#onTimer)方法
+  	  * void deleteProcessingTimeTimer(long time)：删除处理时间定时器
+  	  * void deleteEventTimeTimer(long time)：删除事件时间定时器
+  	* public abstract \<X\> void output(OutputTag\<X\> outputTag, X value)：发送到侧输出流
+* getRuntimeContext：
+  * 任务：获取Jobid、获取Task名、最大子任务数
+  * 子任务：获取子任务索引、获取子任务的任务名、获取分区中子任务的数量、获取指标组
+  * 工具：[建立/获得]累加器、[初始化获得/获得]广播变量、获取分布式缓存、获取双精度浮点计数器、获取长整数计数器、获取整数计数器、
+  * 状态：获取聚合状态、获取归约状态、获取尝试次数AttemptNumber、获取状态、获取列表状态、获取Map状态、是否有广播变量
+  * 对象：运行配置对象、获取外部资源信息、获取直方图、获取用户代码类加载器、如歌不存在则实例化钩子函数并注册用户代码类加载器
+* <a name="onTimer">onTimer</a>：
+	* long timestamp: 当前时间戳
+	* OnTimerContext ctc：定时器上下文 = 定时器内容 + 上下文
+	* Output out：数据收集器
+
+
+
+
+案例：每秒输出当前最火的页面
+
+```java
+/* top.taurushu.pojo.Event */
+package top.taurushu.pojo;
+
+import lombok.Data;
+
+import java.sql.Timestamp;
+
+@Data
+public class Event {
+
+    private String name;
+    private String uri;
+    private Long time;
+
+    public Event() {
+    }
+
+    public Event(String value) {
+        this(value.split(",")[0], value.split(",")[1], Long.valueOf(value.split(",")[2]));
+    }
+
+    public Event(String name, String uri, Long time) {
+        this.name = name;
+        this.uri = uri;
+        this.time = time;
+    }
+    
+    @Override
+    public String toString() {
+        return "Event{" +
+                "name='" + name + '\'' +
+                ", uri='" + uri + '\'' +
+                ", time=" + new Timestamp(time) +
+                '}';
+    }
+
+}
+```
+
+```java
+/* top.taurushu.utils.FromKafkaSource; */
+package top.taurushu.utils;
+
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.connector.kafka.source.KafkaSource;
+import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import top.taurushu.pojo.Event;
+
+import java.util.function.Function;
+
+public class FromKafkaSource {
+    private FromKafkaSource() {
+
+    }
+
+    public static void executeFromKafkaSource(Function<SingleOutputStreamOperator<Event>, Void> function) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        KafkaSource<String> source = KafkaSource.<String>builder()
+                .setBootstrapServers("node1:9092")
+                .setTopics("flink-generate-topic")
+                .setGroupId("my-group")
+                .setStartingOffsets(OffsetsInitializer.earliest())
+                .setValueOnlyDeserializer(new SimpleStringSchema())
+                .build();
+        SingleOutputStreamOperator<Event> kafkaSource = env.fromSource(source, WatermarkStrategy.noWatermarks(), "kafka Source")
+                .map((MapFunction<String, Event>) Event::new).setParallelism(6);
+        function.apply(kafkaSource);
+        env.execute();
+    }
+}
+
+```
+
+```java
+/* top.taurushu.pojo.UrlCount */
+package top.taurushu.pojo;
+
+import lombok.Data;
+
+@Data
+public class UrlCount {
+    private String url;
+    private Long count;
+    private Long windowStart;
+    private Long windowEnd;
+
+    public UrlCount(){
+
+    }
+
+    public UrlCount(String url, Long count, Long windowStart, Long windowEnd) {
+        this.url = url;
+        this.count = count;
+        this.windowStart = windowStart;
+        this.windowEnd = windowEnd;
+    }
+
+    @Override
+    public String toString() {
+        return "UrlCount{" +
+                "url='" + url + '\'' +
+                ", count=" + count +
+                ", windowStart=" + windowStart +
+                ", windowEnd=" + windowEnd +
+                '}';
+    }
+}
+```
+
+```java
+/* top.taurushu.demo.ImplDemo1 */
+package top.taurushu.demo;
+
+import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
+import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.util.Collector;
+import top.taurushu.pojo.Event;
+import top.taurushu.pojo.UrlCount;
+import top.taurushu.utils.FromKafkaSource;
+
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.function.Function;
+
+public class ImplDemo1 {
+    public static void main(String[] args) throws Exception {
+        Function<SingleOutputStreamOperator<Event>, Void> function = (SingleOutputStreamOperator<Event> stream) -> {
+
+
+            DataStream<UrlCount> aggregated = stream.assignTimestampsAndWatermarks(
+                            WatermarkStrategy.<Event>forBoundedOutOfOrderness(Duration.ofMillis(50)).withTimestampAssigner(
+                                    (SerializableTimestampAssigner<Event>) (element, recordTimestamp) -> element.getTime()
+                            ))
+                    .keyBy(Event::getUri)
+                    .window(SlidingEventTimeWindows.of(Time.milliseconds(4000), Time.milliseconds(2000)))
+                    .aggregate(new AggregateFunction<Event, UrlCount, UrlCount>() {
+                                   @Override
+                                   public UrlCount createAccumulator() {
+                                       UrlCount urlCount = new UrlCount();
+                                       urlCount.setUrl("");
+                                       urlCount.setCount(0L);
+                                       urlCount.setWindowStart(Long.MIN_VALUE);
+                                       urlCount.setWindowEnd(Long.MIN_VALUE);
+                                       return urlCount;
+                                   }
+
+                                   @Override
+                                   public UrlCount add(Event value, UrlCount accumulator) {
+                                       accumulator.setUrl(value.getUri());
+                                       accumulator.setCount(accumulator.getCount() + 1L);
+                                       return accumulator;
+                                   }
+
+                                   @Override
+                                   public UrlCount getResult(UrlCount accumulator) {
+                                       return accumulator;
+                                   }
+
+                                   @Override
+                                   public UrlCount merge(UrlCount a, UrlCount b) {
+                                       UrlCount urlCount = new UrlCount();
+                                       urlCount.setUrl(a.getUrl());
+                                       urlCount.setCount(a.getCount() + b.getCount());
+                                       urlCount.setWindowStart(Math.min(a.getWindowStart(), b.getWindowStart()));
+                                       urlCount.setWindowEnd(Math.max(a.getWindowEnd(), b.getWindowEnd()));
+                                       return urlCount;
+                                   }
+                               },
+                            new ProcessWindowFunction<UrlCount, UrlCount, String, TimeWindow>() {
+                                @Override
+                                public void process(String s, ProcessWindowFunction<UrlCount, UrlCount, String, TimeWindow>.Context context, Iterable<UrlCount> elements, Collector<UrlCount> out) throws Exception {
+                                    for (UrlCount element : elements) {
+                                        element.setWindowStart(context.window().getStart());
+                                        element.setWindowEnd(context.window().getEnd());
+                                        out.collect(element);
+                                        break;
+                                    }
+
+                                }
+                            }
+                    );
+//            aggregated.print("urlCount");
+
+            aggregated.keyBy(UrlCount::getWindowEnd)
+                    .process(new TopNProcessResult(3)).print("----------------------------");
+
+            return null;
+        };
+        FromKafkaSource.executeFromKafkaSource(function);
+    }
+
+    public static class TopNProcessResult extends KeyedProcessFunction<Long, UrlCount, String> {
+
+        private Integer n;
+        private ListState<UrlCount> listState;
+
+
+        public TopNProcessResult() {
+        }
+
+        public TopNProcessResult(Integer n) {
+            this.n = n;
+        }
+
+        public Integer getN() {
+            return n;
+        }
+
+        public void setN(Integer n) {
+            this.n = n;
+        }
+
+        public static void getView(ArrayList<UrlCount> elements, int number, Collector<String> out,
+                                   KeyedProcessFunction<Long, UrlCount, String>.Context ctx) {
+            StringBuilder builder = new StringBuilder();
+            builder.append("-----------------------------------------------\n");
+            builder.append("窗口结束时间: ")
+                    .append(new Timestamp(ctx.getCurrentKey()))
+                    .append('\n');
+            for (int i = 0; i < Math.min(number, elements.size()); i++) {
+                UrlCount element = elements.get(i);
+                builder.append("No.").append(i + 1)
+                        .append("\turl:'").append(element.getUrl())
+                        .append("'\t访问量:").append(element.getCount());
+                builder.append('\n');
+            }
+
+            builder.append("-----------------------------------------------\n");
+            out.collect(builder.toString());
+        }
+
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
+
+            listState = getRuntimeContext()
+                    .getListState(new ListStateDescriptor<UrlCount>("urlCountList", Types.POJO(UrlCount.class)));
+        }
+
+        @Override
+        public void onTimer(long timestamp, KeyedProcessFunction<Long, UrlCount, String>.OnTimerContext ctx, Collector<String> out) throws Exception {
+            ArrayList<UrlCount> urlCounts = new ArrayList<>();
+            listState.get().forEach(urlCounts::add);
+            urlCounts.sort((o1, o2) -> (int) (o2.getCount() - o1.getCount()));
+            getView(urlCounts, 3, out, ctx);
+        }
+
+        @Override
+        public void processElement(UrlCount value, KeyedProcessFunction<Long, UrlCount, String>.Context ctx, Collector<String> out) throws Exception {
+            listState.add(value);
+            ctx.timerService().registerEventTimeTimer(value.getWindowEnd() + 1L);
+        }
+    }
+}
+```
+
+```java
+/* top.taurushu.demo.ImplDemo2 */
+package top.taurushu.demo;
+
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.functions.windowing.ProcessAllWindowFunction;
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.util.Collector;
+import top.taurushu.pojo.Event;
+import top.taurushu.utils.FromKafkaSource;
+
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+
+public class ImplDemo2 {
+    public static void main(String[] args) throws Exception {
+        Function<SingleOutputStreamOperator<Event>, Void> function = (SingleOutputStreamOperator<Event> stream) -> {
+            stream.assignTimestampsAndWatermarks(
+                            WatermarkStrategy
+                                    .<Event>forBoundedOutOfOrderness(Duration.ofMillis(50))
+                                    .withTimestampAssigner((Event element, long recordTimestamp) ->
+                                            element.getTime()
+                                    )
+                    )
+                    .map(Event::getUri)
+
+                    .windowAll(SlidingEventTimeWindows.of(Time.milliseconds(1000), Time.milliseconds(500)))
+                    .aggregate(new AggregateFunction<String, Map<String, Long>, List<Tuple2<String, Long>>>() {
+                        @Override
+                        public Map<String, Long> createAccumulator() {
+                            return new HashMap<>();
+                        }
+
+                        @Override
+                        public Map<String, Long> add(String value, Map<String, Long> accumulator) {
+                            if (accumulator.containsKey(value)) {
+                                accumulator.put(value, accumulator.get(value) + 1L);
+                            } else {
+                                accumulator.put(value, 1L);
+                            }
+                            return accumulator;
+                        }
+
+                        @Override
+                        public List<Tuple2<String, Long>> getResult(Map<String, Long> accumulator) {
+                            List<Map.Entry<String, Long>> list = new ArrayList<>(accumulator.entrySet());
+                            list.sort((o1, o2) -> (int) (o2.getValue() - o1.getValue()));
+
+                            ArrayList<Tuple2<String, Long>> returnList = new ArrayList<>();
+                            for (int i = 0; i < 3; i++) {
+                                if (list.size() > i) {
+                                    returnList.add(Tuple2.of(list.get(i).getKey(), list.get(i).getValue()));
+                                }
+                            }
+                            return returnList;
+                        }
+
+                        @Override
+                        public Map<String, Long> merge(Map<String, Long> a, Map<String, Long> b) {
+                            HashMap<String, Long> map = new HashMap<>();
+                            map.putAll(a);
+                            map.putAll(b);
+                            return map;
+                        }
+                    }
+                    , new ProcessAllWindowFunction<List<Tuple2<String, Long>>, String, TimeWindow>() {
+                        @Override
+                        public void process(ProcessAllWindowFunction<List<Tuple2<String, Long>>, String, TimeWindow>.Context context,
+                                            Iterable<List<Tuple2<String, Long>>> elements,
+                                            Collector<String> out) throws Exception {
+                            StringBuilder builder = new StringBuilder();
+                            builder.append("-----------------------------------------------\n");
+                            for (List<Tuple2<String, Long>> element : elements) {
+                                builder.append("窗口结束时间: ")
+                                        .append(new Timestamp(context.window().getEnd()))
+                                        .append('\n');
+                                for (int i = 0; i < element.size(); i++) {
+                                    Tuple2<String, Long> tuple2 = element.get(i);
+                                    builder.append("No.").append(i + 1)
+                                            .append("\turl:'").append(tuple2.f0)
+                                            .append("'\t访问量:").append(tuple2.f1);
+                                    builder.append('\n');
+                                }
+                                break;
+                            }
+                            builder.append("-----------------------------------------------\n");
+                            out.collect(builder.toString());
+                        }
+                    }
+                    ).print();
+
+
+            return null;
+        };
+
+
+        FromKafkaSource.executeFromKafkaSource(function);
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+## 代码 0 - All
+
+> 1. 获取执行环境
+> 2. 设置全局分区数
+> 3. 添加数据源
+> 4. 获取数据源，得到DataStream
+> 5. 选择水印类型，标记水印
+> 6. 迭代函数/处理函数（）
+> 7. 
 
 
 
@@ -1330,16 +1783,4 @@ operator.print("main");
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
