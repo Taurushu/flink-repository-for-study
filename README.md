@@ -251,13 +251,13 @@ bin/flink canel -t yarn-application -Dyarn.application.id=application_xxxxxx_yy 
 
 ### Flink运行时架构
 
-![job提交抽象流程](tzicng-1.png)
+![job提交抽象流程](png/tzicng-1.png)
 
 ### 作业提交流程
 
 #### job提交抽象流程
 
-![job提交抽象流程](tuqhe3-1.png)
+![job提交抽象流程](png/tuqhe3-1.png)
 
 #### Standalone提交流程
 
