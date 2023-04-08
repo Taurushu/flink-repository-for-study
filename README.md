@@ -1248,6 +1248,69 @@ public class ForAggregateFullWindowFunction {
 }
 ```
 
+#### 其他API
+
+##### Trigger 触发器
+
+Trigger 触发器 控制窗口什么时候触发，设置定时服务，再窗口结束时间要做的动作
+
+* onElement：每接受一个数据，触发一个行为
+* onProcessingTime：定时处理，执行一个行为
+* onEventTime：事件时间，执行一个行为
+
+> TriggerResult枚举类，定义发送和清理动作
+
+##### Evictor 移除器
+
+Evictor 移除器 定义窗口数据的取舍
+
+* evictBefore：定义运算之前的数据的取舍
+* evictAfter：定义运算之后的数据的取舍
+
+##### AllowedLateness 允许延迟
+
+AllowedLateness 允许延迟 在window后调用allowedLateness，表示允许延迟
+
+*  定义的(Time)Time.time，虽然定义期间，出现的数据不会进行计算了，但是在计算后还是能够添加到窗口之中，参与下一次的计算，允许延迟到达，让真正关闭窗口的时间，再晚一些
+
+#### SideOutputLateData 侧输出流
+
+SideOutputLateData 侧输出流 定义迟到的数据存储位置，还可以将他提取出来，基于窗口处理完成后的DataStream调用GetSideOutput()，传入对应标签获取迟到数据所在的侧输出流。
+
+```java
+OutputTag<Event> eventOutputTag = new OutputTag<Event>("eventLate");  // 定义侧输出流标签
+DataStream<String> mainOutput = stream
+    .assignTimestampsAndWatermarks(...)
+    .keyBy(...)
+    .window(...)
+    .sideOutputLateData(eventOutputTag)  // 传进侧输出流的标签，获取数据
+    .aggregate(AggFunction,ProcessFunction);
+operator.getSideOutput(eventOutputTag).print("outside");  // 从运算结果中返回测数据流数据，并打印
+operator.print("main"); 
+```
+
+### 总结
+
+数据允许迟到的三种手段
+
+1. WaterMark：会严重导致计算延迟，通常设置 < 1000ms
+2. allowLateness：允许数据迟到，但是窗口不关闭，资源不能释放，通常设置 1min
+3. sideOutputStream：将严重迟到的数据再整合到一起
+
+## 处理函数
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
