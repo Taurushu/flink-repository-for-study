@@ -261,15 +261,15 @@ bin/flink canel -t yarn-application -Dyarn.application.id=application_xxxxxx_yy 
 
 #### Standalone提交流程
 
-<img src="tzp5qu-1.png" alt="Standalone提交流程" style="zoom: 33%;" />
+<img src="png/tzp5qu-1.png" alt="Standalone提交流程" style="zoom: 33%;" />
 
 #### Yarn-session提交流程
 
-<img src="txns4p-1.png" alt="Yarn-session提交流程" style="zoom: 50%;" />
+<img src="png/txns4p-1.png" alt="Yarn-session提交流程" style="zoom: 50%;" />
 
 #### Yarn-Per-Job提交流程
 
-<img src="txxfe0-1.png" alt="Yarn-Per-Job提交流程" style="zoom:50%;" />
+<img src="png/txxfe0-1.png" alt="Yarn-Per-Job提交流程" style="zoom:50%;" />
 
 ### 程序和数据流(DataFlow)
 
@@ -395,7 +395,7 @@ Flink的基本步骤
 4. 定义计算结果的输出位置(sink)
 5. 触发程序执行(execute)
 
-![image-20230403213813630](C:/Users/%E8%88%92%E6%9D%B0/Desktop/png/zczntl-1.png)
+![image-20230403213813630](png/zczntl-1.png)
 
 ### 创建执行环境
 
@@ -661,25 +661,25 @@ keyed.keyBy(value -> "default").maxBy(1).returns(Types.TUPLE(Types.STRING, Types
 
 1. shuffle：以`随机策略`将若干数据，发送到所有的分区中去
 
-	<img src="Flink分区Shuffle策略.png" alt="Flink分区Shuffle策略" style="zoom:150%;" />
+	<img src="png/Flink分区Shuffle策略.png" alt="Flink分区Shuffle策略" style="zoom:150%;" />
 
 2. rebalance：以`轮询策略`将若干数据，发送到所有的分区中去
 
-	<img src="Flink分区Balance策略.png" alt="Flink分区Balance策略" style="zoom:150%;" />
+	<img src="png/Flink分区Balance策略.png" alt="Flink分区Balance策略" style="zoom:150%;" />
 
 3. rescale：以`TaskManager内轮询策略`将若干数据，发送到当前的TaskManager的分区中去
 
-	<img src="Flink分区Scale策略.png" alt="Flink分区Scale策略" style="zoom:150%;" />
+	<img src="png/Flink分区Scale策略.png" alt="Flink分区Scale策略" style="zoom:150%;" />
 
 特殊分区：
 
 1. broadcast：以`广播策略`将若干数据，发送到所有的分区中去
 
-	<img src="Flink分区Broadcast策略.png" alt="Flink分区Broadcast策略" style="zoom:150%;" />
+	<img src="png/Flink分区Broadcast策略.png" alt="Flink分区Broadcast策略" style="zoom:150%;" />
 
 2. global：以`全局策略`将若干数据，发送到一个分区中去
 
-	<img src="Flink分区Global策略.png" alt="Flink分区Global策略" style="zoom:150%;" />
+	<img src="png/Flink分区Global策略.png" alt="Flink分区Global策略" style="zoom:150%;" />
 
 ###  Sink
 
@@ -1017,7 +1017,7 @@ SingleOutputStreamOperator<Event> kfkSrcWithWM2 =
 
 #### 按照驱动类型划分
 
-<img src="http://tuchuang.taurushu.top/i/2023/04/07/pdzkcf-1.png" alt="驱动类型分类窗口" style="zoom:150%;" />
+<img src="png/驱动类型分类窗口.png" alt="驱动类型分类窗口" style="zoom:150%;" />
 
 ##### 1. TimeWindow 时间窗口
 
@@ -1035,7 +1035,7 @@ SingleOutputStreamOperator<Event> kfkSrcWithWM2 =
 
 滚动窗口特点：窗口`大小固定`，将数据`均匀切片`，窗口间`没有重叠`，`一个`数据分配属于`一个`窗口
 
-<img src="http://tuchuang.taurushu.top/i/2023/04/07/sv2kl9-1.png" alt="image-20230407174524482" style="zoom:67%;" />
+<img src="png/sv2kl9-1.png" alt="image-20230407174524482" style="zoom:67%;" />
 
 ##### 2. 滑动窗口(Sliding Window)
 
@@ -1043,7 +1043,7 @@ SingleOutputStreamOperator<Event> kfkSrcWithWM2 =
 
 滑动窗口特点：窗口`大小固定`，窗口间`存在滑动步长`，窗口间`有`重叠部分，`一个`数据可能属于`多个`窗口
 
-<img src="http://tuchuang.taurushu.top/i/2023/04/07/szuu9a-1.png" alt="image-20230407175327973" style="zoom: 67%;" />
+<img src="png/szuu9a-1.png" alt="image-20230407175327973" style="zoom: 67%;" />
 
 ##### 3. 会话窗口(Session Window)
 
@@ -1051,7 +1051,7 @@ SingleOutputStreamOperator<Event> kfkSrcWithWM2 =
 
 会话窗口：窗口大小`不固定`，按照会话`间隔大小`，进行分割窗口，窗口间有间隔且间隔`大于`设定的间隔大小
 
-<img src="http://tuchuang.taurushu.top/i/2023/04/07/x70gpm-1.png" alt="image-20230407200640168" style="zoom:67%;" />
+<img src="png//x70gpm-1.png" alt="image-20230407200640168" style="zoom:67%;" />
 
 ##### 4. 全局窗口(Global Window)
 
@@ -1059,7 +1059,7 @@ SingleOutputStreamOperator<Event> kfkSrcWithWM2 =
 
 全局窗口：把相同key的`所有数据`都分配到`一个窗口`中，默认不会触发计算，需要`自定义触发器`，进行计算处理
 
-<img src="http://tuchuang.taurushu.top/i/2023/04/07/xczzkl-1.png" alt="image-20230407201721620" style="zoom:67%;" />
+<img src="png/xczzkl-1.png" alt="image-20230407201721620" style="zoom:67%;" />
 
 ### 窗口分类
 
@@ -1083,7 +1083,7 @@ stream.windowAll(...).xxx()
 
 总的来说，一个窗口函数分为两个部分：1.窗口划分逻辑 [WindowAssigner] 2.窗口计算逻辑 [WindowFunction]
 
-![Flink流之间的转换](http://tuchuang.taurushu.top/i/2023/04/07/10n0biw-1.png)
+![Flink流之间的转换](png/Flink流之间的转换.png)
 
 #### 窗口划分逻辑 [WindowAssigner]
 
