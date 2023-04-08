@@ -8,6 +8,7 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import top.taurushu.pojo.Event;
+
 import java.util.function.Function;
 
 public class FromKafkaSource {
