@@ -38,7 +38,7 @@ public class ForAggregateFullWindowFunction {
 
         @Override
         public HashSet<String> createAccumulator() {
-            return new HashSet<String>();
+            return new HashSet<>();
         }
 
         @Override
@@ -63,7 +63,8 @@ public class ForAggregateFullWindowFunction {
 
     static class CustomProWinFunc extends ProcessWindowFunction<Long, String, String, TimeWindow> {
         @Override
-        public void process(String s, ProcessWindowFunction<Long, String, String, TimeWindow>.Context context, Iterable<Long> elements, Collector<String> out) throws Exception {
+        public void process(String s, ProcessWindowFunction<Long, String, String, TimeWindow>.Context context,
+                            Iterable<Long> elements, Collector<String> out) {
             for (Long size : elements) {
                 out.collect(new Timestamp(context.window().getStart())
                         + " ~ " + new Timestamp(context.window().getEnd())
