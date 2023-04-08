@@ -241,7 +241,7 @@ bin/flink canel -t yarn-application -Dyarn.application.id=application_xxxxxx_yy 
 
 报错问题：
 
-![image-20230402233336305](iak8pp.png)
+![image-20230402233336305](png/iak8pp.png)
 
 > Exception in thread "Thread-5" java.lang.IllegalStateException: Trying to access closed classloader. Please check if you store classloaders directly or indirectly in static fields. If the stacktrace suggests that the leak occurs in a third party library and cannot be fixed immediately, you can disable this check with the configuration 'classloader.check-leaked-classloader'.
 > 
