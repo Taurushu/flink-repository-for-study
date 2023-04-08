@@ -1,13 +1,13 @@
 package top.taurushu.utils;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import top.taurushu.pojo.Event;
-
 import java.util.function.Function;
 
 public class FromKafkaSource {
@@ -25,8 +25,7 @@ public class FromKafkaSource {
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
         SingleOutputStreamOperator<Event> kafkaSource = env.fromSource(source, WatermarkStrategy.noWatermarks(), "kafka Source")
-                .map(Event::new).setParallelism(6);
-
+                .map((MapFunction<String, Event>) Event::new).setParallelism(6);
         function.apply(kafkaSource);
         env.execute();
     }
