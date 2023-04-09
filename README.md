@@ -1347,8 +1347,7 @@ ProcessFunction
 
 
 
-
-案例：每秒输出当前最火的页面
+### 案例：每秒输出当前最火的页面
 
 ```java
 /* top.taurushu.pojo.Event */
@@ -1735,17 +1734,402 @@ public class ImplDemo2 {
 }
 ```
 
-### 多流操作
+## 多流操作
+
+### 1 -> N 分流操作
+
+```java
+public static void main(String[] args) throws Exception {
+    Function<SingleOutputStreamOperator<Event>, Void> function = (SingleOutputStreamOperator<Event> stream) -> {
+
+        stream = stream.assignTimestampsAndWatermarks(
+            WatermarkStrategy.<Event>forBoundedOutOfOrderness(
+                Duration.ofMillis(50)
+            ).withTimestampAssigner((element, recordTimestamp) -> element.getTime())
+        ).returns(Types.POJO(Event.class));
+        OutputTag<Event> outMarry = new OutputTag<Event>("outMary", Types.POJO(Event.class));
+        OutputTag<Event> outBob = new OutputTag<Event>("outBob", Types.POJO(Event.class));
+        SingleOutputStreamOperator<Event> process = stream.process(new ProcessFunction<Event, Event>() {
+            @Override
+            public void processElement(Event value, ProcessFunction<Event, Event>.Context ctx,
+                                       Collector<Event> out) throws Exception {
+                if (Objects.equals(value.getName().substring(0, 4), "Mary")) {
+                    ctx.output(outMarry, value);
+                } else if (Objects.equals(value.getName().substring(0, 3), "Bob")) {
+                    ctx.output(outBob, value);
+                } else {
+                    out.collect(value);
+                }
+            }
+        }).returns(Types.POJO(Event.class));
+        process.getSideOutput(outMarry).print("outMarry");
+        process.getSideOutput(outBob).print("outBob");
+        process.print("outElse");
+        return null;
+    };
+    FromKafkaSource.executeFromKafkaSource(function);
+}
+```
+
+### N -> 1 合流操作
+
+#### Union 联合流
+
+```java
+SingleOutputStreamOperator<Event> source1 = ... ;
+SingleOutputStreamOperator<Event> source2 = ... ;
+
+source1.<Event>union(source2).map((Event e) -> 1).keyBy(l -> 1).sum(0).print();
+```
+
+#### Connect 连接流
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+DataStreamSource<Integer> ints = env.fromElements(1, 2, 3);
+DataStreamSource<Long> longs = env.fromElements(1L, 2L, 3L);
+
+ints.connect(longs).map(new CoMapFunction<Integer, Long, String>() {
+    @Override
+    public String map1(Integer value) throws Exception {
+        return value.toString();
+    }
+
+    @Override
+    public String map2(Long value) throws Exception {
+        return value.toString();
+    }
+}).print();
+env.execute();
+```
+
+#### boarodcastjoin 广播连接流
+
+涉及状态知识 👉[boarodcastjoin](#boarodcastjoin)
+
+#### 对账案例<状态>
+
+```java
+package top.taurushu.union;
+
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.scala.typeutils.Types;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
+import org.apache.flink.util.Collector;
+import top.taurushu.pojo.Pay;
+import top.taurushu.pojo.ThirdPayPlatform;
+
+import java.time.Duration;
+import java.util.Objects;
+
+public class ElseConnectStream {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+
+        SingleOutputStreamOperator<Pay> paySource = env.fromElements(
+            new Pay("order_01", "app", 1000L),
+            new Pay("order_02", "app", 1200L),
+            new Pay("order_03", "app", 1300L),
+            new Pay("order_04", "app", 1400L),
+            new Pay("order_05", "app", 1500L)
+        ).assignTimestampsAndWatermarks(WatermarkStrategy.<Pay>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                        .withTimestampAssigner((element, recordTimestamp) -> element.getTimestampLong()));
+
+
+        SingleOutputStreamOperator<ThirdPayPlatform> thirdSource = env.fromElements(
+            new ThirdPayPlatform("order_01", "ThirdPayPlatform", true, 1000L - 100L),
+            new ThirdPayPlatform("order_02", "ThirdPayPlatform", true, 1200L - 100L),
+            new ThirdPayPlatform("order_03", "ThirdPayPlatform", true, 1300L - 100L),
+            new ThirdPayPlatform("order_04", "ThirdPayPlatform", true, 1400L - 100L),
+            new ThirdPayPlatform("order_05", "ThirdPayPlatform", true, 1500L - 100L)
+        ).assignTimestampsAndWatermarks(WatermarkStrategy.<ThirdPayPlatform>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                        .withTimestampAssigner((element, recordTimestamp) -> element.getTime()));
+
+
+        paySource.connect(thirdSource)
+            .keyBy(Pay::getOrderId, ThirdPayPlatform::getOrderId)
+            .process(new CoProcessFunction<Pay, ThirdPayPlatform, String>() {
+                ValueState<Pay> payValueState;
+                ValueState<ThirdPayPlatform> platformValueState;
+
+                @Override
+                public void open(Configuration parameters) throws Exception {
+                    payValueState = getRuntimeContext().getState(
+                        new ValueStateDescriptor<>("pay-event", Types.POJO(Pay.class))
+                    );
+                    platformValueState = getRuntimeContext().getState(
+                        new ValueStateDescriptor<>("third-event", Types.POJO(ThirdPayPlatform.class))
+                    );
+                }
+
+                @Override
+                public void processElement1(Pay value, CoProcessFunction<Pay, ThirdPayPlatform, String>.Context ctx, Collector<String> out) throws Exception {
+                    if (Objects.isNull(platformValueState.value())) {
+                        payValueState.update(value);
+                        ctx.timerService().registerEventTimeTimer(value.getTimestampLong() + 5000L);
+                    } else {
+                        out.collect("对账成功\t" + value.toString() + "\t" + platformValueState.value());
+                        platformValueState.clear();
+                    }
+                }
+
+                @Override
+                public void processElement2(ThirdPayPlatform value, CoProcessFunction<Pay, ThirdPayPlatform, String>.Context ctx, Collector<String> out) throws Exception {
+                    if (Objects.isNull(payValueState.value())) {
+                        platformValueState.update(value);
+                        ctx.timerService().registerEventTimeTimer(value.getTime() + 5000L);
+                    } else {
+                        out.collect("对账成功\t" + payValueState.value() + "\t" + value.toString());
+                        payValueState.clear();
+                    }
+                }
+
+
+                @Override
+                public void onTimer(long timestamp, CoProcessFunction<Pay, ThirdPayPlatform, String>.OnTimerContext ctx, Collector<String> out) throws Exception {
+                    if (!Objects.isNull(payValueState)) {
+                        out.collect("对账失败\t" + payValueState.value() + "\t" + "NUll");
+                    }
+                    if (!Objects.isNull(platformValueState)) {
+                        out.collect("对账失败\t" + "NUll" + "\t" + platformValueState.value());
+                    }
+                    payValueState.clear();
+                    platformValueState.clear();
+                }
+            }).print();
+
+        env.execute();
+    }
+}
+
+```
+
+#### join 窗口连接
+
+```java
+public static void main(String[] args) throws Exception {
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+    SingleOutputStreamOperator<Pay> paySource = env.fromElements(
+        new Pay("order_01", "app", 1000L),
+        new Pay("order_02", "app", 1200L),
+        new Pay("order_03", "app", 1300L),
+        new Pay("order_04", "app", 1400L),
+        new Pay("order_05", "app", 1500L)
+    ).assignTimestampsAndWatermarks(WatermarkStrategy.<Pay>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                    .withTimestampAssigner((element, recordTimestamp) -> element.getTimestampLong()));
+
+
+    SingleOutputStreamOperator<ThirdPayPlatform> thirdSource = env.fromElements(
+        new ThirdPayPlatform("order_01", "ThirdPayPlatform", true, 1000L - 100L),
+        new ThirdPayPlatform("order_02", "ThirdPayPlatform", true, 1200L - 100L),
+        new ThirdPayPlatform("order_03", "ThirdPayPlatform", true, 1300L - 100L),
+        new ThirdPayPlatform("order_04", "ThirdPayPlatform", true, 1400L - 100L),
+        new ThirdPayPlatform("order_05", "ThirdPayPlatform", true, 1500L - 100L)
+    ).assignTimestampsAndWatermarks(WatermarkStrategy.<ThirdPayPlatform>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                    .withTimestampAssigner((element, recordTimestamp) -> element.getTime()));
+
+    paySource.join(thirdSource)
+        .where(Pay::getOrderId).equalTo(ThirdPayPlatform::getOrderId)
+        .window(SlidingEventTimeWindows.of(Time.milliseconds(200), Time.milliseconds(100)))
+        .apply((Pay first, ThirdPayPlatform second) -> first + " -> " + second)
+        .print();
+    env.execute();
+}
+```
+
+#### intervalJoin 间隔连接
+
+```java
+public static void main(String[] args) throws Exception {
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+    SingleOutputStreamOperator<Pay> paySource = env.fromElements(
+        new Pay("order_01", "app", 1000L),
+        new Pay("order_02", "app", 1200L),
+        new Pay("order_03", "app", 1300L),
+        new Pay("order_04", "app", 1400L),
+        new Pay("order_05", "app", 1500L)
+    ).assignTimestampsAndWatermarks(WatermarkStrategy.<Pay>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                    .withTimestampAssigner((element, recordTimestamp) -> element.getTimestampLong()));
+
+
+    SingleOutputStreamOperator<ThirdPayPlatform> thirdSource = env.fromElements(
+        new ThirdPayPlatform("order_01", "ThirdPayPlatform", true, 1000L - 100L),
+        new ThirdPayPlatform("order_02", "ThirdPayPlatform", true, 1200L - 100L),
+        new ThirdPayPlatform("order_03", "ThirdPayPlatform", true, 1300L - 100L),
+        new ThirdPayPlatform("order_04", "ThirdPayPlatform", true, 1400L - 100L),
+        new ThirdPayPlatform("order_05", "ThirdPayPlatform", true, 1500L - 100L)
+    ).assignTimestampsAndWatermarks(WatermarkStrategy.<ThirdPayPlatform>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                    .withTimestampAssigner((element, recordTimestamp) -> element.getTime()));
+
+    paySource.keyBy(Pay::getOrderId).intervalJoin(thirdSource.keyBy(ThirdPayPlatform::getOrderId))
+        .between(Time.milliseconds(-250), Time.milliseconds(250))
+        .process(new ProcessJoinFunction<Pay, ThirdPayPlatform, String>() {
+            @Override
+            public void processElement(Pay left, ThirdPayPlatform right, ProcessJoinFunction<Pay, ThirdPayPlatform, String>.Context ctx, Collector<String> out) throws Exception {
+                out.collect(left + " -> " + right);
+            }
+        })
+        .print();
+    env.execute();
+}
+```
+
+#### coGroup 组合窗口连接
+
+```java
+public class ConWindowJoin {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+        SingleOutputStreamOperator<Pay> paySource = env.fromElements(
+            new Pay("order_01", "app", 1000L), //  900L  750~1000   1000~1500
+            new Pay("order_02", "app", 1200L), // 1100L
+            new Pay("order_03", "app", 1300L), // 1200L
+            new Pay("order_04", "app", 1400L), // 1300L
+            new Pay("order_05", "app", 1500L)  // 1400L
+        ).assignTimestampsAndWatermarks(WatermarkStrategy.<Pay>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                        .withTimestampAssigner((element, recordTimestamp) -> element.getTimestampLong()));
+
+
+        SingleOutputStreamOperator<ThirdPayPlatform> thirdSource = env.fromElements(
+            new ThirdPayPlatform("order_01", "ThirdPayPlatform", true, 1000L - 100L),
+            new ThirdPayPlatform("order_02", "ThirdPayPlatform", true, 1200L - 100L),
+            new ThirdPayPlatform("order_03", "ThirdPayPlatform", true, 1300L - 100L),
+            new ThirdPayPlatform("order_04", "ThirdPayPlatform", true, 1400L - 100L),
+            new ThirdPayPlatform("order_05", "ThirdPayPlatform", true, 1500L - 100L)
+        ).assignTimestampsAndWatermarks(WatermarkStrategy.<ThirdPayPlatform>forBoundedOutOfOrderness(Duration.ofMillis(100))
+                                        .withTimestampAssigner((element, recordTimestamp) -> element.getTime()));
+
+
+        paySource.keyBy(Pay::getOrderId).coGroup(thirdSource.keyBy(ThirdPayPlatform::getOrderId))
+            .where(Pay::getOrderId, Types.STRING).equalTo(ThirdPayPlatform::getOrderId, Types.STRING)
+            .window(SlidingEventTimeWindows.of(Time.milliseconds(500), Time.milliseconds(250)))
+            .apply(new CoGroupFunction<Pay, ThirdPayPlatform, String>() {
+                @Override
+                public void coGroup(Iterable<Pay> first, Iterable<ThirdPayPlatform> second, Collector<String> out) throws Exception {
+                    out.collect(first + "->" + second);
+                }
+            })
+            .print();
+        env.execute();
+    }
+}
+```
+
+## 状态编程
+
+Flink种的状态分为`keyed State` 和 `Operator State` 还有广播状态`BroadcastState`
+
+### keyed State 按键分区状态
+
+内置的状态分为5种，分别是
+
+1. ValueState 值状态
+
+	```java
+	getRuntimeContext().getState();
+	
+	public interface ValueState<T> extends State {
+	    // 获取当前状态值
+	    T value() throws IOException;
+	    
+	    // 更新、覆写状态值
+	    void update(T value) throws IOException;
+	```
+
+2. ListState 列表状态
+
+	```java
+	getRuntimeContext().getListState();
+	
+	public interface ListState<T> extends MergingState<T, Iterable<T>> {
+	
+		// 传入一个列表values，直接对状态进行覆盖
+	    void update(List<T> values) throws Exception;
+	
+	    // 向列表中添加多个元素，以列表values形式传入
+	    void addAll(List<T> values) throws Exception;
+	    
+	    
+	    /* AppendingState */
+	    // 获取当前的列表状态，返回的是一个可迭代类型Iterable<T>
+	    Iterable get() throws Exception; 
+	
+		// 在状态列表中添加一个元素value
+	    void add(IN value) throws Exception;
+	```
+
+3. Map State 映射状态
+
+	```java
+	public interface MapState<UK, UV> extends State {
+	    
+		// 传入一个个key作为参数，查询对应的value值
+	    UV get(UK key) throws Exception;
+	    
+		// 传入一个键值对，更新key对应的value值
+	    void put(UK key, UV value) throws Exception;
+	    
+	    // 传入映射map中所有的键值对，全部添加到映射状态中
+	    void putAll(Map<UK, UV> map) throws Exception;
+	
+		// 删除指定key
+	    void remove(UK key) throws Exception;
+	
+	    // 判断是否存在指定的key,返回一个boolean值
+	    boolean contains(UK key) throws Exception;
+	
+	    // 获取映射状态中所有的键值对
+	    Iterable<Map.Entry<UK, UV>> entries() throws Exception;
+	
+	    // 获取映射状态中所有的键(key),返回一个可迭代Iterable类型
+	    Iterable<UK> keys() throws Exception;
+	
+	    // 获取映射状态中所有的值(value),返回一个可迭代Iterable类型
+	    Iterable<UV> values() throws Exception;
+	
+	    // 获取映射状态中所有的键值对
+	    Iterator<Map.Entry<UK, UV>> iterator() throws Exception;
+	
+	    boolean isEmpty() throws Exception;
+	}
+	```
+
+4. ReducingState
+
+	```java
+	// 状态中保存的是结果，并不是所有的值，结果是由初始结果与所有的值，按照逻辑迭代而来
+	// 继承了ReduceFunction的特点 (V, V) -> V
+	public ReducingStateDescriptor ( String name, ReduceFunction<T> reduceFunction, Class<T> typeClass) {}
+	/*
+	类似于值状态(Value)，不过需要对添加进来的所有数据进行归约，将归约聚合之后的值作为状态保存下来。ReducintState<T>这 个接口调用的方法类似于ListState， 只不过它保存的只是一个聚合值，所以调用.add(方法时，不是在状态列表里添加元素，而是直接把新数据和之前的状态进行归约，并用得到的结果更新状态
+	*/
+	```
+
+5. AggregatingState
+
+	```java
+	// 状态中保存的是结果，并不是所有的值，结果是由初始结果与所有的值，按照逻辑迭代而来
+	// 继承了AggregatingState的特点有通用的逻辑
+	
+	/* 
+	AggregatingState()与归约状态非常类似，聚合状态也是一个值，用来保存添加进来的所有数据的聚合结果。与ReducingState 不同的是，它的聚合逻辑是由在描述器中传入一个更加一般化的聚合函数(AggregateFunction)来定义的;这也就是之前我们讲过的AggregateFunction， 里面通过一个累加器(Accumulator)来表示状态，所以聚合的状态类型可以跟添加进来的数据类型完全不同，使用更加灵活。
+	*/
+	```
+
+### Operator State 算子状态
 
 
 
-
-
-
-
-
-
-
+### <a name="boarodcastjoin">BroadcastState 广播状态</a>
 
 
 
