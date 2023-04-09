@@ -317,7 +317,7 @@ Flink中的执行图分为四层：StreamGraph -> JobGraph -> ExecutionGraph -> 
 * ExecutionGraph: JobManager生成的Graph，ExecutionGraph是JobGraph的并行化版本，是调度层最核心的数据结构
 * 物理执行图: JobManager根据ExecutionGraph调度后，在TaskManagers上部署Task后的图，不是具体的数据结构
 
-![ExecutionGraph执行图](ExecutionGraph执行图.png)
+![ExecutionGraph执行图](png/ExecutionGraph执行图.png)
 
 #### Task \ TaskSlots
 
