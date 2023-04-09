@@ -2028,118 +2028,399 @@ public class ConWindowJoin {
 
 Flink种的状态分为`keyed State` 和 `Operator State` 还有广播状态`BroadcastState`
 
-### keyed State 按键分区状态
+### keyedState 按键分区状态
 
 内置的状态分为5种，分别是
 
-1. ValueState 值状态
+#### ValueState 值状态
 
-	```java
-	getRuntimeContext().getState();
-	
-	public interface ValueState<T> extends State {
-	    // 获取当前状态值
-	    T value() throws IOException;
-	    
-	    // 更新、覆写状态值
-	    void update(T value) throws IOException;
-	```
+```java
+getRuntimeContext().getState();
 
-2. ListState 列表状态
+public interface ValueState<T> extends State {
+    // 获取当前状态值
+    T value() throws IOException;
+    
+    // 更新、覆写状态值
+    void update(T value) throws IOException;
+```
 
-	```java
-	getRuntimeContext().getListState();
-	
-	public interface ListState<T> extends MergingState<T, Iterable<T>> {
-	
-		// 传入一个列表values，直接对状态进行覆盖
-	    void update(List<T> values) throws Exception;
-	
-	    // 向列表中添加多个元素，以列表values形式传入
-	    void addAll(List<T> values) throws Exception;
-	    
-	    
-	    /* AppendingState */
-	    // 获取当前的列表状态，返回的是一个可迭代类型Iterable<T>
-	    Iterable get() throws Exception; 
-	
-		// 在状态列表中添加一个元素value
-	    void add(IN value) throws Exception;
-	```
+#### ListState 列表状态
 
-3. Map State 映射状态
+```java
+getRuntimeContext().getListState();
 
-	```java
-	public interface MapState<UK, UV> extends State {
-	    
-		// 传入一个个key作为参数，查询对应的value值
-	    UV get(UK key) throws Exception;
-	    
-		// 传入一个键值对，更新key对应的value值
-	    void put(UK key, UV value) throws Exception;
-	    
-	    // 传入映射map中所有的键值对，全部添加到映射状态中
-	    void putAll(Map<UK, UV> map) throws Exception;
-	
-		// 删除指定key
-	    void remove(UK key) throws Exception;
-	
-	    // 判断是否存在指定的key,返回一个boolean值
-	    boolean contains(UK key) throws Exception;
-	
-	    // 获取映射状态中所有的键值对
-	    Iterable<Map.Entry<UK, UV>> entries() throws Exception;
-	
-	    // 获取映射状态中所有的键(key),返回一个可迭代Iterable类型
-	    Iterable<UK> keys() throws Exception;
-	
-	    // 获取映射状态中所有的值(value),返回一个可迭代Iterable类型
-	    Iterable<UV> values() throws Exception;
-	
-	    // 获取映射状态中所有的键值对
-	    Iterator<Map.Entry<UK, UV>> iterator() throws Exception;
-	
-	    boolean isEmpty() throws Exception;
-	}
-	```
+public interface ListState<T> extends MergingState<T, Iterable<T>> {
 
-4. ReducingState
+	// 传入一个列表values，直接对状态进行覆盖
+    void update(List<T> values) throws Exception;
 
-	```java
-	// 状态中保存的是结果，并不是所有的值，结果是由初始结果与所有的值，按照逻辑迭代而来
-	// 继承了ReduceFunction的特点 (V, V) -> V
-	public ReducingStateDescriptor ( String name, ReduceFunction<T> reduceFunction, Class<T> typeClass) {}
-	/*
-	类似于值状态(Value)，不过需要对添加进来的所有数据进行归约，将归约聚合之后的值作为状态保存下来。ReducintState<T>这 个接口调用的方法类似于ListState， 只不过它保存的只是一个聚合值，所以调用.add(方法时，不是在状态列表里添加元素，而是直接把新数据和之前的状态进行归约，并用得到的结果更新状态
-	*/
-	```
+    // 向列表中添加多个元素，以列表values形式传入
+    void addAll(List<T> values) throws Exception;
+    
+    
+    /* AppendingState */
+    // 获取当前的列表状态，返回的是一个可迭代类型Iterable<T>
+    Iterable get() throws Exception; 
 
-5. AggregatingState
+	// 在状态列表中添加一个元素value
+    void add(IN value) throws Exception;
+```
 
-	```java
-	// 状态中保存的是结果，并不是所有的值，结果是由初始结果与所有的值，按照逻辑迭代而来
-	// 继承了AggregatingState的特点有通用的逻辑
-	
-	/* 
-	AggregatingState()与归约状态非常类似，聚合状态也是一个值，用来保存添加进来的所有数据的聚合结果。与ReducingState 不同的是，它的聚合逻辑是由在描述器中传入一个更加一般化的聚合函数(AggregateFunction)来定义的;这也就是之前我们讲过的AggregateFunction， 里面通过一个累加器(Accumulator)来表示状态，所以聚合的状态类型可以跟添加进来的数据类型完全不同，使用更加灵活。
-	*/
-	```
+#### Map State 映射状态
 
-### Operator State 算子状态
+```java
+public interface MapState<UK, UV> extends State {
+    
+	// 传入一个个key作为参数，查询对应的value值
+    UV get(UK key) throws Exception;
+    
+	// 传入一个键值对，更新key对应的value值
+    void put(UK key, UV value) throws Exception;
+    
+    // 传入映射map中所有的键值对，全部添加到映射状态中
+    void putAll(Map<UK, UV> map) throws Exception;
+
+	// 删除指定key
+    void remove(UK key) throws Exception;
+
+    // 判断是否存在指定的key,返回一个boolean值
+    boolean contains(UK key) throws Exception;
+
+    // 获取映射状态中所有的键值对
+    Iterable<Map.Entry<UK, UV>> entries() throws Exception;
+
+    // 获取映射状态中所有的键(key),返回一个可迭代Iterable类型
+    Iterable<UK> keys() throws Exception;
+
+    // 获取映射状态中所有的值(value),返回一个可迭代Iterable类型
+    Iterable<UV> values() throws Exception;
+
+    // 获取映射状态中所有的键值对
+    Iterator<Map.Entry<UK, UV>> iterator() throws Exception;
+
+    boolean isEmpty() throws Exception;
+}
+```
+
+#### ReducingState
+
+```java
+// 状态中保存的是结果，并不是所有的值，结果是由初始结果与所有的值，按照逻辑迭代而来
+// 继承了ReduceFunction的特点 (V, V) -> V
+public ReducingStateDescriptor ( String name, ReduceFunction<T> reduceFunction, Class<T> typeClass) {}
+/*
+类似于值状态(Value)，不过需要对添加进来的所有数据进行归约，将归约聚合之后的值作为状态保存下来。ReducintState<T>这 个接口调用的方法类似于ListState， 只不过它保存的只是一个聚合值，所以调用.add(方法时，不是在状态列表里添加元素，而是直接把新数据和之前的状态进行归约，并用得到的结果更新状态
+*/
+```
+
+#### AggregatingState
+
+```java
+// 状态中保存的是结果，并不是所有的值，结果是由初始结果与所有的值，按照逻辑迭代而来
+// 继承了AggregatingState的特点有通用的逻辑
+
+/* 
+AggregatingState()与归约状态非常类似，聚合状态也是一个值，用来保存添加进来的所有数据的聚合结果。与ReducingState 不同的是，它的聚合逻辑是由在描述器中传入一个更加一般化的聚合函数(AggregateFunction)来定义的;这也就是之前我们讲过的AggregateFunction， 里面通过一个累加器(Accumulator)来表示状态，所以聚合的状态类型可以跟添加进来的数据类型完全不同，使用更加灵活。
+*/
+```
+
+### ListState 列表状态
+
+如果需要拆分列表状态，列表状态会直接聚合所有的列表，然后轮询分配，重新生成列表状态
+
+```java
+stream = stream.setParallelism(1);
+stream = stream.assignTimestampsAndWatermarks(
+    WatermarkStrategy.<Event>forBoundedOutOfOrderness(Duration.ofMillis(200))
+    .withTimestampAssigner((element, recordTimestamp) -> element.getTime())
+).setParallelism(1);
+stream.addSink(new SinkToOtherFileSystem(2000)).setParallelism(1);
+```
+
+```java
+package top.taurushu.process;
+
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.runtime.state.FunctionInitializationContext;
+import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
+import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import top.taurushu.pojo.Event;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class SinkToOtherFileSystem implements SinkFunction<Event>, CheckpointedFunction {
+
+    private int count;
+    /* SinkFunction OverWrite */
+    private final int maxWriteNumber;
+
+    private List<Event> bufferedElementLists;
+
+    private ListState<Event> stateElementLists;
 
 
+    public SinkToOtherFileSystem(int maxWriteNumber) {
+        this.maxWriteNumber = maxWriteNumber;
+        this.bufferedElementLists = new ArrayList<>();
+    }
+
+    @Override
+    public void invoke(Event value, Context context) throws Exception {
+        bufferedElementLists.add(value);
+        if (bufferedElementLists.size() > maxWriteNumber) {
+//            bufferedElementLists.forEach(System.out::println);
+            System.out.println("------------------" + count + "--------------------------------");
+            count++;
+            bufferedElementLists = new ArrayList<>();
+        }
+    }
+
+    /* CheckPointedFunction OverWrite */
+
+    @Override
+    public void snapshotState(FunctionSnapshotContext context) throws Exception {
+        stateElementLists.clear();
+        for (Event bufferedElementList : bufferedElementLists) {
+            stateElementLists.add(bufferedElementList);
+        }
+    }
+
+    @Override
+    public void initializeState(FunctionInitializationContext context) throws Exception {
+        ListStateDescriptor<Event> descriptor = new ListStateDescriptor<>("stateElementLists", Types.POJO(Event.class));
+        stateElementLists = context.getOperatorStateStore().getListState(descriptor);
+
+        if (context.isRestored()) stateElementLists.get().forEach(e -> bufferedElementLists.add(e));
+    }
+}
+```
+
+### UnionListState 联合列表状态
+
+如果需要拆分列表状态，列表状态会直接聚合所有的列表，然后广播给所有任务，根据分区任务需要进行筛选，重新生成列表状态
+
+由于效率不高，且资源使用较大，一般不建议使用
 
 ### <a name="boarodcastjoin">BroadcastState 广播状态</a>
 
+希望资源共享，或者需要动态配置，全局生效，则可以使用广播状态进行操作，必须基于广播流进行操作
+
+```java
+package top.taurushu.state;
+
+import lombok.Data;
+import org.apache.flink.api.common.state.*;
+import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.api.java.tuple.Tuple4;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.datastream.BroadcastStream;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction;
+import org.apache.flink.util.Collector;
+
+import java.util.Objects;
 
 
+public class RunBroadcastStateStream {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        
+        // 获取两个流数据
+        DataStreamSource<Action> actionS = env.fromElements(
+                new Action("Mary", "login"),
+                new Action("Bob", "login"),
+                new Action("Mary", "login"),
+                new Action("Mary", "cart"),
+                new Action("Mary", "pay"),
+                new Action("Bob", "cart"),
+                new Action("Bob", "pay")
+        );
+        DataStreamSource<Pattern> patternS = env.fromElements(
+                new Pattern("login", "cart"),
+                new Pattern("cart", "pay")
+        );
+        MapStateDescriptor<Void, Pattern> patternDescriptor
+                = new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class));
+        BroadcastStream<Pattern> broadcast = patternS.broadcast(patternDescriptor);
+
+        actionS.keyBy(Action::getUserId, Types.STRING).connect(broadcast).process(new PatternAction()).print();
 
 
+        env.execute();
+    }
+
+    public static class PatternAction extends KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>> {
+
+        ValueState<Action> patternValueAction;
 
 
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            patternValueAction = getRuntimeContext().getState(new ValueStateDescriptor<Action>("patternValueState", Action.class));
+        }
+
+        @Override
+        public void processElement(Action value, KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>>.ReadOnlyContext ctx, Collector<Tuple4<String, Action, Action, Pattern>> out) throws Exception {
+            if (Objects.isNull(patternValueAction.value())) {
+                patternValueAction.update(value);
+                return;
+            }
+
+            Action lastValue = patternValueAction.value();
+            Pattern pattern = ctx.getBroadcastState(new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class))).get(null);
+
+            if (!Objects.isNull(value) && !Objects.isNull(pattern) && Objects.equals(value.action, pattern.actionNext)
+                    && Objects.equals(lastValue.action, pattern.actionFirst)) {
+                out.collect(Tuple4.of(value.userId, lastValue, value, pattern));
+            }
+
+            patternValueAction.update(value);
+        }
+
+        @Override
+        public void processBroadcastElement(Pattern value, KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>>.Context ctx, Collector<Tuple4<String, Action, Action, Pattern>> out) throws Exception {
+            ctx.getBroadcastState(
+                    new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class))
+            ).put(null, value);
+        }
+    }
 
 
+    public static class Action {
+        private String userId;
+        private String action;
 
+        public String getUserId() {
+            return userId;
+        }
+
+        public void setUserId(String userId) {
+            this.userId = userId;
+        }
+
+        public String getAction() {
+            return action;
+        }
+
+        public void setAction(String action) {
+            this.action = action;
+        }
+
+        public Action() {
+        }
+
+        public Action(String userId, String action) {
+            this.userId = userId;
+            this.action = action;
+        }
+
+        @Override
+        public String toString() {
+            return "Action{" +
+                    "userId='" + userId + '\'' +
+                    ", action='" + action + '\'' +
+                    '}';
+        }
+    }
+
+    public static class Pattern {
+        private String actionFirst;
+        private String actionNext;
+
+        public Pattern() {
+        }
+
+        public Pattern(String actionFirst, String actionNext) {
+            this.actionFirst = actionFirst;
+            this.actionNext = actionNext;
+        }
+
+        public String getActionFirst() {
+            return actionFirst;
+        }
+
+        public void setActionFirst(String actionFirst) {
+            this.actionFirst = actionFirst;
+        }
+
+        public String getActionNext() {
+            return actionNext;
+        }
+
+        public void setActionNext(String actionNext) {
+            this.actionNext = actionNext;
+        }
+
+        @Override
+        public String toString() {
+            return "Pattern{" +
+                    "actionFirst='" + actionFirst + '\'' +
+                    ", actionNext='" + actionNext + '\'' +
+                    '}';
+        }
+    }
+
+}
+```
+
+### 状态后端
+
+在Flink中，状态的存储、访问以及维护，都是由一个可插拔的组件决定的，这个组件就叫作状态后端(state backend)。状态后端主要负责两件事:一是本地的状态管理，二是将检查点(checkpoint)写入远程的持久化存储。
+
+##### HashMapStateBackend (default)
+
+配置flink-conf.yaml - 配置全局检查点
+
+```yaml
+# 默认状态后端
+state.backend: hashmap
+# 存放检查点的文件路径
+state.checkpoints.dir: hdfs://namenode:40010/flink/checkpoints
+```
+
+配置单独任务检查点
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+env.setStateBackend(new HashMapStateBackend());  // hashmap,
+```
+
+##### EmbeddedRocksDBStateBackend (插拔式)
+
+配置RocksDB依赖
+
+```xml
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-statebackend-rocksdb_2.11</artifactId>
+    <version>1.13.0</version>
+</dependency>
+```
+
+配置flink-conf.yaml - 配置全局检查点
+
+```yaml
+# 默认状态后端
+state.backend: rocksdB
+# 存放检查点的文件路径
+state.checkpoints.dir: hdfs://namenode:40010/flink/checkpoints
+```
+
+配置单独任务检查点
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+env.setStateBackend(new EmbeddedRocksDBStateBackend()); // rocksDB
+```
+
+## 检查点
 
 
 
