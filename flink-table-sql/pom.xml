@@ -49,30 +49,75 @@
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-api-java</artifactId>
+            <version>${flink.veresion}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-api-java-bridge</artifactId>
+            <version>${flink.veresion}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-runtime</artifactId>
+            <version>${flink.veresion}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-planner-loader</artifactId>
+            <version>${flink.veresion}</version>
+        </dependency>
+
+
+        <!-- flink client -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
             <artifactId>flink-clients</artifactId>
             <version>${flink.veresion}</version>
         </dependency>
 
+        <!-- connectors -->
         <!-- flink 连接 kafka的包-->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-kafka</artifactId>
             <version>${flink.veresion}</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.bahir/flink-connector-redis -->
+
+        <!-- flink-csv -->
         <dependency>
-            <groupId>org.apache.bahir</groupId>
-            <artifactId>flink-connector-redis_2.11</artifactId>
-            <version>1.1-SNAPSHOT</version>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-csv</artifactId>
+            <version>${flink.veresion}</version>
         </dependency>
 
+        <!-- flink-connector-files -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-files</artifactId>
+            <version>${flink.veresion}</version>
+        </dependency>
+
+        <!-- flink-connector-redis-->
+        <dependency>
+            <groupId>org.apache.bahir</groupId>
+            <artifactId>flink-connector-redis_2.12</artifactId>
+            <version>1.1-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.flink</groupId>
+                    <artifactId>flink-table-api-java-bridge_2.12</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <!-- flink 连接 elasticsearch的包 -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-elasticsearch7</artifactId>
             <version>${flink.veresion}</version>
         </dependency>
-
         <!-- flink 连接 jdbc的包 -->
         <dependency>
             <groupId>org.apache.flink</groupId>
