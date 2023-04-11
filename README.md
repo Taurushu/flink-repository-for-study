@@ -2211,162 +2211,82 @@ public class SinkToOtherFileSystem implements SinkFunction<Event>, CheckpointedF
 希望资源共享，或者需要动态配置，全局生效，则可以使用广播状态进行操作，必须基于广播流进行操作
 
 ```java
-package top.taurushu.state;
+public static void main(String[] args) throws Exception {
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1);
 
-import lombok.Data;
-import org.apache.flink.api.common.state.*;
-import org.apache.flink.api.common.typeinfo.Types;
-import org.apache.flink.api.java.tuple.Tuple4;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.datastream.BroadcastStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
-import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction;
-import org.apache.flink.util.Collector;
+    // 获取两个流数据
+    DataStreamSource<Action> actionS = env.fromElements(
+        new Action("Mary", "login"),
+        new Action("Bob", "login"),
+        new Action("Mary", "login"),
+        new Action("Mary", "cart"),
+        new Action("Mary", "pay"),
+        new Action("Bob", "cart"),
+        new Action("Bob", "pay")
+    );
+    // 准备广播流数据 【!!! 注意 !!!】 广播流数据，后一条会覆盖之前的所有数据，若需要所有广播流消息，则可以保存在状态里
+    DataStreamSource<Pattern> patternS = env.fromElements(
+        new Pattern("login", "cart"), // 无效数据，会被之后的数据覆盖
+        new Pattern("cart", "pay")
+    );
+    MapStateDescriptor<Void, Pattern> patternDescriptor
+        = new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class));
+    BroadcastStream<Pattern> broadcast = patternS.broadcast(patternDescriptor);
 
-import java.util.Objects;
-
-
-public class RunBroadcastStateStream {
-    public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1);
-        
-        // 获取两个流数据
-        DataStreamSource<Action> actionS = env.fromElements(
-                new Action("Mary", "login"),
-                new Action("Bob", "login"),
-                new Action("Mary", "login"),
-                new Action("Mary", "cart"),
-                new Action("Mary", "pay"),
-                new Action("Bob", "cart"),
-                new Action("Bob", "pay")
-        );
-        DataStreamSource<Pattern> patternS = env.fromElements(
-                new Pattern("login", "cart"),
-                new Pattern("cart", "pay")
-        );
-        MapStateDescriptor<Void, Pattern> patternDescriptor
-                = new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class));
-        BroadcastStream<Pattern> broadcast = patternS.broadcast(patternDescriptor);
-
-        actionS.keyBy(Action::getUserId, Types.STRING).connect(broadcast).process(new PatternAction()).print();
+    actionS.keyBy(Action::getUserId, Types.STRING).connect(broadcast).process(new PatternAction()).print();
 
 
-        env.execute();
+    env.execute();
+}
+
+public static class PatternAction extends KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>> {
+
+    ValueState<Action> patternValueAction;
+
+
+    @Override
+    public void open(Configuration parameters) throws Exception {
+        patternValueAction = getRuntimeContext().getState(new ValueStateDescriptor<Action>("patternValueState", Action.class));
     }
 
-    public static class PatternAction extends KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>> {
-
-        ValueState<Action> patternValueAction;
-
-
-        @Override
-        public void open(Configuration parameters) throws Exception {
-            patternValueAction = getRuntimeContext().getState(new ValueStateDescriptor<Action>("patternValueState", Action.class));
-        }
-
-        @Override
-        public void processElement(Action value, KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>>.ReadOnlyContext ctx, Collector<Tuple4<String, Action, Action, Pattern>> out) throws Exception {
-            if (Objects.isNull(patternValueAction.value())) {
-                patternValueAction.update(value);
-                return;
-            }
-
-            Action lastValue = patternValueAction.value();
-            Pattern pattern = ctx.getBroadcastState(new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class))).get(null);
-
-            if (!Objects.isNull(value) && !Objects.isNull(pattern) && Objects.equals(value.action, pattern.actionNext)
-                    && Objects.equals(lastValue.action, pattern.actionFirst)) {
-                out.collect(Tuple4.of(value.userId, lastValue, value, pattern));
-            }
-
+    @Override
+    public void processElement(Action value, KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>>.ReadOnlyContext ctx, Collector<Tuple4<String, Action, Action, Pattern>> out) throws Exception {
+        if (Objects.isNull(patternValueAction.value())) {
             patternValueAction.update(value);
+            return;
         }
 
-        @Override
-        public void processBroadcastElement(Pattern value, KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>>.Context ctx, Collector<Tuple4<String, Action, Action, Pattern>> out) throws Exception {
-            ctx.getBroadcastState(
-                    new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class))
-            ).put(null, value);
+        Action lastValue = patternValueAction.value();
+        Pattern pattern = ctx.getBroadcastState(new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class))).get(null);
+
+        if (!Objects.isNull(value) && !Objects.isNull(pattern) && Objects.equals(value.action, pattern.actionNext)
+            && Objects.equals(lastValue.action, pattern.actionFirst)) {
+            out.collect(Tuple4.of(value.userId, lastValue, value, pattern));
         }
+
+        patternValueAction.update(value);
     }
 
-
-    public static class Action {
-        private String userId;
-        private String action;
-
-        public String getUserId() {
-            return userId;
-        }
-
-        public void setUserId(String userId) {
-            this.userId = userId;
-        }
-
-        public String getAction() {
-            return action;
-        }
-
-        public void setAction(String action) {
-            this.action = action;
-        }
-
-        public Action() {
-        }
-
-        public Action(String userId, String action) {
-            this.userId = userId;
-            this.action = action;
-        }
-
-        @Override
-        public String toString() {
-            return "Action{" +
-                    "userId='" + userId + '\'' +
-                    ", action='" + action + '\'' +
-                    '}';
-        }
+    @Override
+    public void processBroadcastElement(Pattern value, KeyedBroadcastProcessFunction<String, Action, Pattern, Tuple4<String, Action, Action, Pattern>>.Context ctx, Collector<Tuple4<String, Action, Action, Pattern>> out) throws Exception {
+        ctx.getBroadcastState(
+            new MapStateDescriptor<>("pattern-state", Types.VOID, Types.POJO(Pattern.class))
+        ).put(null, value);
     }
+}
 
-    public static class Pattern {
-        private String actionFirst;
-        private String actionNext;
 
-        public Pattern() {
-        }
+public static class Action {
+    private String userId;
+    private String action;
+    ...
+}
 
-        public Pattern(String actionFirst, String actionNext) {
-            this.actionFirst = actionFirst;
-            this.actionNext = actionNext;
-        }
-
-        public String getActionFirst() {
-            return actionFirst;
-        }
-
-        public void setActionFirst(String actionFirst) {
-            this.actionFirst = actionFirst;
-        }
-
-        public String getActionNext() {
-            return actionNext;
-        }
-
-        public void setActionNext(String actionNext) {
-            this.actionNext = actionNext;
-        }
-
-        @Override
-        public String toString() {
-            return "Pattern{" +
-                    "actionFirst='" + actionFirst + '\'' +
-                    ", actionNext='" + actionNext + '\'' +
-                    '}';
-        }
-    }
-
+public static class Pattern {
+    private String actionFirst;
+    private String actionNext;
+    ...
 }
 ```
 
@@ -2420,16 +2340,222 @@ StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironm
 env.setStateBackend(new EmbeddedRocksDBStateBackend()); // rocksDB
 ```
 
-## 检查点
+## 容错机制
+
+### 检查点
+
+1. 周期检查点：为了保障数据安全，资源以及性能，会周期性设立检查点
+2. 检查点分界线(barrier)：当JM下达触发检查点，Source会对输入数据插入分界线，传到所有的节点，只要有状态节点处理到分界线，会异步写入检查点
+3. 分界线对齐(barrier alignment)：多任务汇聚的时候需要保障，所有的检查点都要对齐，检查点之后的任务需要进行缓存
+	* 但是如果缓存的数据过多，等待时间过长，数据量会越来越大，导致数据反压
+	* Flink1.11之后给出了非对齐检查点保存方法，将未处理的缓冲数据也保存在检查点中，进行保存但检查点会保存更多信息
+
+![image-20230410113345539](png/%E5%88%86%E7%95%8C%E7%BA%BF%E5%AF%B9%E9%BD%90.png)
+
+4. 检查点配置
+
+| 序号 | 方法名                              | 含义                                                         |
+| ---- | ----------------------------------- | ------------------------------------------------------------ |
+| 1    | setCheckpointStorage                | [配置检查点的存储位置](#setCheckpointStorage)                |
+| 2    | setCheckpointTimeout                | [配置检查点超时时间](#setCheckpointTimeout)                  |
+| 3    | setCheckpointingMode                | [配置检查点模式](#setCheckpointingMode)                      |
+| 4    | setMinPauseBetweenCheckpoints       | [配置检查点间最小间隔](#setMinPauseBetweenCheckpoints)       |
+| 5    | setMaxConcurrentCheckpoints         | [配置最大存在的检查点数量](#setMaxConcurrentCheckpoints)     |
+| 6    | enableUnalignedCheckpoints          | [开启非对齐检查点](#enableUnalignedCheckpoints)              |
+| 7    | setExternalizedCheckpointCleanup    | [配置检查点的外部持久化](#setExternalizedCheckpointCleanup)  |
+| 8    | setTolerableCheckpointFailureNumber | [设置检查点允许失败次数](#setTolerableCheckpointFailureNumber) |
+| x    | setAlignedCheckpointTimeout         | 设置对齐检查点超时                                           |
+| x    | setCheckpointInterval               | 设置检查点间隔                                               |
+
+#### 1. <a name="setCheckpointStorage">配置检查点的存储位置</a>
+
+```java
+/* 
+调用1：checkpointConfig.setCheckpointStorage(CheckpointStorage storage); 
+调用2：checkpointConfig.setCheckpointStorage(String checkpointDirectory);
+调用3：checkpointConfig.setCheckpointStorage(URI checkpointDirectory);
+调用4：checkpointConfig.setCheckpointStorage(Path checkpointDirectory);
+*/
+/* 案例1-CheckpointStorage：保存数据到JobManager的堆内存中 */
+checkpointConfig.setCheckpointStorage(new JobManagerCheckpointStorage());
+/* 案例2-CheckpointStorage：保存到分布式文件系统中 */
+checkpointConfig.setCheckpointStorage(new FileSystemCheckpointStorage("hdfs Path"));
+```
+
+#### 2. <a name="setCheckpointTimeout">配置检查点超时时间，毫秒值</a>
+
+```java
+/*
+调用： checkpointConfig.setCheckpointTimeout(Long checkpointTimeout); 
+@param checkpointTimeout The checkpoint timeout, in milliseconds.
+*/
+/* 案例：配置一分钟的超时时间，如果超时还未设立检查点，检查点将被丢弃 */
+checkpointConfig.setCheckpointTimeout(1 * 60 * 1000L);
+```
+
+#### 3. <a name="setCheckpointingMode">配置检查点模式</a>
+
+```java
+/* 
+	EXACTLY_ONCE(default)、AT_LEAST_ONCE
+调用：checkpointConfig.setCheckpointingMode(CheckpointingMode checkpointingMode);
+*/
+/* 案例1：配置检查点模式是数据至少消费一次 */
+checkpointConfig.setCheckpointingMode(CheckpointingMode.AT_LEAST_ONCE);
+/* 案例2：配置检查点模式是数据有且只能被消费一次 */
+checkpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
+```
+
+#### 4. <a name="setMinPauseBetweenCheckpoints">配置检查点间最小间隔</a>
+
+```java
+/*  
+配置下次调用检查点至少要在，前面检查点确认完毕后的多长时间后，确保有足够的时间进行流式处理，毫秒值
+调用：checkpointConfig.setMinPauseBetweenCheckpoints(long minPauseBetweenCheckpoints);
+*/
+/* 案例：配置检查点间最小间隔 为 500ms */
+checkpointConfig.setMinPauseBetweenCheckpoints(500L);
+```
+
+#### 5. <a name="setMaxConcurrentCheckpoints">配置最大存在的检查点数量</a>
+
+```java
+/*  
+配置当前集群，最大可以存在的的检查点数量
+调用：checkpointConfig.setMaxConcurrentCheckpoints(int maxConcurrentCheckpoints);
+*/
+/* 案例：当前最大的检查点数量为1 */
+checkpointConfig.setMaxConcurrentCheckpoints(1);
+```
+
+#### 6. <a name="enableUnalignedCheckpoints">开启非对齐检查点</a>
+
+```java
+/*  
+调用：checkpointConfig.enableUnalignedCheckpoints(boolean enabled)
+*/
+/* 开启非对称的检查点机制，检查点模式必须是EXACTLY_ONCE，且最大的检查点任务只能是1 */
+checkpointConfig.enableUnalignedCheckpoints(true)
+```
+
+#### 7. <a name="setExternalizedCheckpointCleanup">配置检查点的外部持久化</a>
+
+```java
+/* 
+	DELETE_ON_CANCELLATION、RETAIN_ON_CANCELLATION、NO_EXTERNALIZED_CHECKPOINTS
+@Deprecated enableExternalizedCheckpoints(ExternalizedCheckpointCleanup cleanupMode)
+调用：checkpointConfig.setExternalizedCheckpointCleanup(ExternalizedCheckpointCleanup cleanupMode)
+    DELETE_ON_CANCELLATION 取消任务时删除
+    RETAIN_ON_CANCELLATION 取消任务时保留
+    NO_EXTERNALIZED_CHECKPOINTS 不设置外部检查点
+*/
+/* 开启检查点的外部持久化，设置取消任务时仍然保留检查点信息 */
+checkpointConfig.setExternalizedCheckpointCleanup(ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
+```
+
+#### 8. <a name="setTolerableCheckpointFailureNumber">设置检查点允许失败次数</a>
+
+```java
+/* 
+调用：checkpointConfig.setTolerableCheckpointFailureNumber(int tolerableCheckpointFailureNumber);
+*/
+/* 设置检查点允许失败次数为0，如果失败则直接抛出异常，结束运行 */
+checkpointConfig.setTolerableCheckpointFailureNumber(0);
+```
+
+### 保存点
+
+如果需要对代码定期优化等，可以对代码中每一个算子设立uid
+
+> 对于没有设置ID的算子，Flink默认会自动进行设置，所以在重新启动应用后可能会导致ID不同而无法兼容以前的状态。所以为了方便后续的维护，强烈建议在程序中为每一个算子手动指定ID。
+
+1. 创建保存点
+	要在命令行中为运行的作业创建一个保存点镜像，只需要执行:
+
+	```shell
+	bin/flink savepoint :jobId [:targetDirectory]
+	# jobId -> 做镜像保存的作业ID
+	# targetDirectory -> 存储的路径
+	```
+
+2. 设置保存点默认存储路径
+
+	通过配置文件flink-conf.yaml 中的state.savepoints.dir项来设定
+
+	```yaml
+	state.savepoints.dir: hdfs://node1:8020/flink/savepoints
+	```
+
+3. 环境配置保存点
+
+	在程序代码中通过执行环境来设置:
+
+	```java
+	env.setDefaultSavepointDir("hdfs://node1:8020/flink/savepoints");
+	```
+
+4. 停掉作业时直接进行保存
+
+	由于创建保存点一般都是希望更改环境之后重启，所以创建之后往往紧接着就是停掉作业的操作。除了对运行的作业创建保存点，我们也可以在停掉一个作业时直接创建保存点
+
+	```shell
+	bin/flink stop --savepointPath [:targetDirectory] :jobId
+	```
+
+5. 从保存点重启应用
+	我们已经知道，提交启动一个Flink作业，使用的命令是flink run，现在要从保存点重启一个应用，其实本质是一样的
+
+	```shell
+	bin/flink run -s :savepointPath [:runArgs]
+	```
 
 
+	这里只要增加一个 `-s` 参数，指定保存点的路径就可以了，其他启动时的参数还是完全一样
 
+### 状态一致性
 
+At most once 一个事件最多处理一次，有可能会丢失数据
 
+At least once 一个事件最少处理一次，一条数据有可能会消费多次
 
+exactly once 一个事件只会处理一次，一条数据有且只能被消费一次
 
+### flink - exactly once
 
+source端 - 重新设置数据读取位置
 
+内部保障 - checkpoint
 
+sink端 - 幂等写入 / 事务写入
 
- 
+#### 幂等写入
+
+一个操作执行很多次，可以重复进行执行，但是结果不会改变，后续执行不起作用
+
+#### 事务写入
+
+1. ##### 预写日志 Write Ahead Log
+
+把结果数据先当成状态保存，然后在收到checkpoint完成的通知时，一次性写入sink系统，由于数据提前在状态后端中做了缓存，所以无论什么sink系统，都能用这种方式一批搞定，DataStream Model Class GenericWriteAheadSink，来实现这种事务性sink
+
+特点：简单易于实现，外部数据源没有要求，批处理思路，延迟较大
+
+2. ##### 两阶段提交
+
+* 数据源需要可以重复读取
+* sink可以事务性提交
+
+> 需要精确达到 exactly-once 需要的配置
+>
+> 1. 必须启用检查点
+>
+> 2. 在KafkaSinkBuilder中设置
+>
+> 	`.setDeliverGuarantee(DeliveryGuarantee.EXACTLY_ONCE)`
+>
+> 3. 配置Kafka读取数据的消费者的隔离级别为`read_committed`，避免未提交的数据被读取
+>
+> 4. 事务超时配置，Flink的Kafka连接器中配置的事务超时时间[transaction.timeout.ms]默认是1小时，而Kafka集群配置的事务最大超时时间[transaction.max.timeout.ms]默认是15分钟，为了避免Kafka删除Flink的事务提交的数据，需要将kafka的事务提交事件更改大于Flink的时间
+
+## Table Api & SQL
+
