@@ -2559,3 +2559,667 @@ sink端 - 幂等写入 / 事务写入
 
 ## Table Api & SQL
 
+由于需要 Table Api 和 sql 引入依赖
+
+```xml
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-api-java</artifactId>
+    <version>${flink.veresion}</version>
+</dependency>
+
+<!-- 集成开发环境运行时需要添加的依赖 -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-api-java-bridge</artifactId>
+    <version>${flink.veresion}</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-runtime</artifactId>
+    <version>${flink.veresion}</version>
+</dependency>
+```
+
+### Test For Start
+
+```java
+public static void main(String[] args) throws Exception {
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    SingleOutputStreamOperator<Event> fromKafkaSource = GetKafkaSource.getFromKafkaSource(env);
+
+    SingleOutputStreamOperator<Event> streamOperator = fromKafkaSource.assignTimestampsAndWatermarks(
+        WatermarkStrategy.<Event>forBoundedOutOfOrderness(Duration.ofMillis(50))
+        .withTimestampAssigner((element, recordTimestamp) -> element.getTime())
+    );
+
+    // 根据Stream流执行环境，创建Table Api执行环境
+    StreamTableEnvironment tblEnv = StreamTableEnvironment.create(env);
+
+    // 根据Stream流，转换为Table进行操作
+    Table table = tblEnv.fromDataStream(streamOperator);
+
+
+    // 根据sql进行执行
+    String sql = "select `name`, `uri`, `time` from " + table;
+    System.out.println(sql);
+
+    // 使用{环境}.sqlQuery({sql})执行查询语句
+    Table sqlQuery = tblEnv.sqlQuery(sql);
+
+    // 打印表信息
+    sqlQuery.printSchema();
+
+    // 转换为DataStream Api进行打印
+    tblEnv.toDataStream(sqlQuery).print("result");
+
+    // 开始执行
+    env.execute();
+}
+```
+
+### ReadFromFileSystem as csv
+
+组件依赖导入
+
+```xml
+<!-- flink csv -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-csv</artifactId>
+    <version>${flink.veresion}</version>
+</dependency>
+
+<!-- flink connector files -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-connector-files</artifactId>
+    <version>${flink.veresion}</version>
+</dependency>
+```
+
+### Table Api Start <ReadWriteFileSystemAsCsv>
+
+Sql 
+
+```java
+public static void main(String[] args) throws Exception {
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    StreamTableEnvironment envTable = StreamTableEnvironment.create(env);
+
+    String createReadFileTable = "CREATE TABLE inputFileTable (\n" +
+        "`name` String,\n" +
+        "`url` String,\n" +
+        "`time` BIGINT" +
+        ") WITH (\n" +
+        "  'connector'='filesystem',\n" +
+        "  'path'='input/input.txt',\n" +
+        "  'format'='csv'\n" +
+        ")";
+    envTable.executeSql(createReadFileTable);
+
+    String createWriteFileTable = "CREATE TABLE outputFileTable (\n" +
+        "`url` String,\n" +
+        "`name` String\n" +
+        ") WITH (\n" +
+        "  'connector'='filesystem',\n" +
+        "  'path'='output',\n" +
+        "  'format'='csv'\n" +
+        ")";
+    envTable.executeSql(createWriteFileTable);
+
+    envTable.sqlQuery("select `url`, `name` from inputFileTable").executeInsert("outputFileTable");
+}
+```
+
+### Window
+
+#### 定义 WaterMark
+
+1. 在创建表的时候定义WaterMark
+
+```sql
+CREATE TABLE inputFileTable
+(
+    `name` String,
+    `url`  String,
+    `time` BIGINT,
+    
+    `time_ltz` AS TO_TIMESTAMP_LTZ(`time`, 3),
+    WaterMark For `time_ltz` as `time_ltz` - Interval '5' second
+    -- 这里 AS 后面实际上是个表达式 (`time_ltz` - Interval '5' second) 的计算值 赋予了For后面的 `time_ltz` 并定义为WaterMark
+    
+    -- `time_ltz` AS PROCTIME()
+    -- 调用系统的 PROCETIME() 获取当前处理时间属性
+) WITH (
+      'connector' = 'filesystem',
+      'path' = 'input/input.txt',
+      'format' = 'csv'
+      );
+#> printSchema     
+#> (
+#>  `name` STRING,
+#>  `url` STRING,
+#>  `time` BIGINT,
+#>  `time_ltz` TIMESTAMP_LTZ(3) *ROWTIME*
+#> )
+```
+
+2. 在DataStream转换的时候定义WaterMark
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+StreamTableEnvironment envTable = StreamTableEnvironment.create(env);
+
+SingleOutputStreamOperator<Event> stream = GetKafkaSource.getFromKafkaSource(env)
+    .assignTimestampsAndWatermarks(
+    WatermarkStrategy.<Event>forBoundedOutOfOrderness(Duration.ofMillis(120))
+    .withTimestampAssigner((element, recordTimestamp) -> element.getTime())
+);
+
+Table table = envTable.fromDataStream(stream, Schema.newBuilder()
+                                      .column("name", DataTypes.STRING())
+                                      .column("uri", DataTypes.STRING())
+                                      .column("time", DataTypes.BIGINT())
+                                      
+                                      .columnByExpression("ts", "TO_TIMESTAMP_LTZ(`time`, 3)")
+                                      .watermark("ts", "ts - INTERVAL '1' SECOND")
+                                      // .columnByExpression("ts", "PROCTIME()") // 处理时间
+                                      .build()
+                                     );
+
+envTable.createTemporaryView("table", table);
+
+
+envTable.sqlQuery("select * from `table`").printSchema();
+/*
+> (
+>     `name` STRING,
+>     `uri` STRING,
+>     `time` BIGINT,
+>     `ts` TIMESTAMP_LTZ(3) *ROWTIME*
+> )
+*/
+```
+
+### 聚合查询（Aggregation）
+
+#### Group 分组聚合
+
+通过 `Group By` + `COUNT()/SUM()/MAX()/MIN()/AVG()` 进行聚合统计对应 `Data Stream` 中的 `keyBy` 
+
+```sql
+SELECT `user`, COUNT(`url`) AS cnt FROM EventTable GROUP BY `user`
+```
+
+> 为了避免key中的状态不断增加，需要在配置中设置TTL，状态一小时未被访问则被直接清理掉
+>
+> ```java
+> envOfTable.getConfig().setIdleStateRetention(Duration.ofMinutes(60));
+> // 或者
+> envOfTable.getConfig().getConfiguration().setString("table.exec.state.ttl", "60 min");
+> ```
+
+#### Window 窗口聚合
+
+以sql方式定义窗口
+
+1. 滚动窗口 Tumbling Windows
+
+```sql
+TUMBLE(TABLE EventTable, DESCRIPTOR(ts), INTERVAL '1' HOURS) 
+    -- TABLE EventTable ：原始的数据表
+    -- DESCRIPTOR(ts) ：时间字段
+    -- INTERVAL '1' HOUR ：窗口大小
+```
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+StreamTableEnvironment envTable = StreamTableEnvironment.create(env);
+
+String s1 = "CREATE TABLE KafkaTable (\n" +
+    "`name` String,\n" +
+    "`url` String,\n" +
+    "`time` BIGINT," +
+    "`time_ltz` AS TO_TIMESTAMP_LTZ(`time`, 3)," +
+    "WaterMark For `time_ltz` as `time_ltz` - Interval '1' second" +
+    ") WITH (\n" +
+    "  'connector'='filesystem',\n" +
+    "  'path'='input/input.txt',\n" +
+    "  'format'='csv'\n" +
+    ")";
+envTable.executeSql(s1);
+
+String windowSql = " " +
+    "select `name`, window_start, window_end, count(1)" +
+    "from Table(TUMBLE(TABLE `KafkaTable`, DESCRIPTOR(`time_ltz`), INTERVAL '1' HOURS)) " +
+    "group by `name`, window_start, window_end;";
+
+envTable.executeSql(windowSql).print();
+```
+
+2. 滑动窗口（跳跃窗口）Hop Windows
+
+```sql
+HOP(TABLE EventTable, DESCRIPTOR(ts), INTERVAL '5' MINUTES, INTERVAL '1' HOURS) 
+    -- TABLE EventTable ：原始的数据表
+    -- DESCRIPTOR(ts) ：时间字段
+    -- INTERVAL '5' MINUTES ：滑动步长
+    -- INTERVAL '1' HOUR ：窗口大小
+```
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+StreamTableEnvironment envTable = StreamTableEnvironment.create(env);
+
+String s1 = "CREATE TABLE KafkaTable (\n" +
+    "`name` String,\n" +
+    "`url` String,\n" +
+    "`time` BIGINT," +
+    "`time_ltz` AS TO_TIMESTAMP_LTZ(`time`, 3)," +
+    "WaterMark For `time_ltz` as `time_ltz` - Interval '1' second" +
+    ") WITH (\n" +
+    "  'connector'='filesystem',\n" +
+    "  'path'='input/input.txt',\n" +
+    "  'format'='csv'\n" +
+    ")";
+envTable.executeSql(s1);
+
+String windowSql = " " +
+    "select `name`, window_start, window_end, count(1)" +
+    "from Table(HOP(TABLE `KafkaTable`, DESCRIPTOR(`time_ltz`), INTERVAL '20' MINUTES, INTERVAL '1' HOURS)) " +
+    "group by `name`, window_start, window_end;";
+
+envTable.executeSql(windowSql).print();
+```
+
+3. 累计窗口 Cumulate Windows
+
+```sql
+CUMULATE(TABLE EventTable, DESCRIPTOR(ts), INTERVAL '1' HOURS, INTERVAL '1' DAYS) 
+    -- TABLE EventTable ：原始的数据表
+    -- DESCRIPTOR(ts) ：时间字段
+    -- INTERVAL '1' HOURS ：增加的步长
+    -- INTERVAL '1' DAYS ：窗口大小
+```
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+StreamTableEnvironment envTable = StreamTableEnvironment.create(env);
+
+String s1 = "CREATE TABLE KafkaTable (\n" +
+    "`name` String,\n" +
+    "`url` String,\n" +
+    "`time` BIGINT," +
+    "`time_ltz` AS TO_TIMESTAMP_LTZ(`time`, 3)," +
+    "WaterMark For `time_ltz` as `time_ltz` - Interval '1' second" +
+    ") WITH (\n" +
+    "  'connector'='filesystem',\n" +
+    "  'path'='input/input.txt',\n" +
+    "  'format'='csv'\n" +
+    ")";
+envTable.executeSql(s1);
+
+String windowSql = " " +
+    "select `name`, window_start, window_end, count(1)" +
+    "from Table(CUMULATE(TABLE KafkaTable, DESCRIPTOR(time_ltz), INTERVAL '20' MINUTES, INTERVAL '1' HOURS)) " +
+    "group by `name`, window_start, window_end;";
+
+envTable.executeSql(windowSql).print();
+```
+
+
+4. 会话窗口 Session Windows
+
+```sql
+-- 支持非完全
+```
+
+#### 开窗聚合
+
+```sql
+-- 模板
+<聚合函数> OVER(
+    [PARTITION BY <filed1>[,<filed1>,<filed1>,...]]
+    ORDER BY <timeFiled>
+    <Window RANGE>
+)
+
+-- 案例
+select 
+	... ,
+	COUNT() OVER(
+        PARTITION BY `name` 
+        ORDER BY `timestamp` 
+        range BETWEEN INTERVAL '1' HOURS AND CURRENT ROW  -- 范围间隔，目前只支持到当前行
+--        range BETWEEN INTERVAL '1-3' YEAR TO HOURS AND CURRENT ROW  -- 特殊表示 1年三个月
+    ),
+	COUNT() OVER(
+        PARTITION BY `name` 
+        ORDER BY `timestamp` 
+        row BETWEEN 5 PRECEDING AND CURRENT ROW -- 行间隔，目前只支持到当前行
+    ),
+    ...
+FROM ...
+    
+    
+-- 窗口定义抽离/复用
+select 
+	... ,
+	COUNT() OVER(w),
+	SUM() OVER(w),
+    ...
+FROM ... 
+WINDOW w AS (
+    PARTITION BY `name` 
+    ORDER BY `timestamp` 
+    row BETWEEN 5 PRECEDING AND CURRENT ROW -- 行间隔，目前只支持到当前行
+)
+```
+
+#### 案例TOPN - 1
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+
+String createSourceSql = " " +
+        "CREATE TABLE inputFileTable\n" +
+        "(\n" +
+        "    `name` String,\n" +
+        "    `url`  String,\n" +
+        "    `time` BIGINT,\n" +
+        "    `time_ltz` AS TO_TIMESTAMP_LTZ(`time`, 3),\n" +
+        "    WaterMark For `time_ltz` as `time_ltz` - Interval '5' second\n" +
+        ") WITH (\n" +
+        "      'connector' = 'filesystem',\n" +
+        "      'path' = 'input/input.txt',\n" +
+        "      'format' = 'csv'\n" +
+        "      );";
+tableEnv.executeSql(createSourceSql);
+
+String getUv = " " +
+        "SELECT `name`,\n" +
+        "       COUNT(1) as cn\n" +
+        "FROM inputFileTable\n" +
+        "GROUP BY `name`";
+Table uvCount = tableEnv.sqlQuery(getUv);
+
+
+String agg = " " +
+        "SELECT `name`, `cn`, `rank`\n" +
+        "FROM (SELECT `name`,\n" +
+        "             `cn`,\n" +
+        "             ROW_NUMBER() OVER(ORDER BY `cn` desc) as `rank`\n" +
+        "      FROM " + uvCount + ")\n" +
+        "WHERE `rank` <= 2;";
+tableEnv.executeSql(agg).print();
+```
+
+```sql
+-- createSourceSql
+CREATE TABLE inputFileTable
+(
+    `name` String,
+    `url`  String,
+    `time` BIGINT,
+    `time_ltz` AS TO_TIMESTAMP_LTZ(`time`, 3),
+    WaterMark For `time_ltz` as `time_ltz` - Interval '5' second
+) WITH (
+      'connector' = 'filesystem',
+      'path' = 'input/input.txt',
+      'format' = 'csv'
+);
+
+-- getUv
+SELECT `name`,
+       COUNT(1) as cn
+FROM inputFileTable
+GROUP BY `name`;
+
+-- agg
+SELECT `name`, `cn`, `rank`
+FROM (SELECT `name`,
+             `cn`,
+             ROW_NUMBER() OVER(ORDER BY `cn`) as `rank`
+      FROM uvCount)
+WHERE `rank` <= 2;
+```
+
+#### 案例TopN - 2
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+
+String createSourceSql = " " +
+        "CREATE TABLE inputFileTable\n" +
+        "(\n" +
+        "    `name` String,\n" +
+        "    `url`  String,\n" +
+        "    `time` BIGINT,\n" +
+        "    `time_ltz` AS TO_TIMESTAMP_LTZ(`time`, 3),\n" +
+        "    WaterMark For `time_ltz` as `time_ltz` - Interval '5' second\n" +
+        ") WITH (\n" +
+        "      'connector' = 'filesystem',\n" +
+        "      'path' = 'input/input.txt',\n" +
+        "      'format' = 'csv'\n" +
+        "      );";
+tableEnv.executeSql(createSourceSql);
+
+String getUv = " " +
+        "SELECT `name`,\n" +
+        "       window_start,\n" +
+        "       window_end,\n" +
+        "       COUNT(1) as cn\n" +
+        "FROM TABLE(TUMBLE(TABLE inputFileTable, DESCRIPTOR(`time_ltz`), INTERVAL '1' HOURS))\n" +
+        "GROUP BY `name`, window_start, window_end;";
+Table uvCount = tableEnv.sqlQuery(getUv);
+
+
+String agg = " " +
+        "SELECT `name`, `cn`, window_start, window_end, `rank`\n" +
+        "FROM (SELECT `name`,\n" +
+        "             `cn`,\n" +
+        "             window_start, " +
+        "             window_end, " +
+        "             ROW_NUMBER() OVER(PARTITION BY window_start, window_end ORDER BY `cn` desc) as `rank`\n" +
+        "      FROM " + uvCount + ")\n" +
+        "WHERE `rank` <= 2;";
+tableEnv.executeSql(agg).print();
+```
+
+```sql
+-- getUv
+SELECT `name`,
+       window_start,
+       window_end,
+       COUNT(1) as cn
+FROM TABLE(TUMBLE(TABLE inputFileTable, DESCRIPTOR(`time_ltz`), INTERVAL '1' HOURS))
+GROUP BY `name`, window_start, window_end;
+
+-- agg
+SELECT `name`, `cn`, window_start, window_end, `rank`
+FROM (SELECT `name`,
+             `cn`,
+             window_start,
+             window_end,
+             ROW_NUMBER() OVER(PARTITION BY window_start, window_end ORDER BY `cn` desc) as `rank`
+      FROM uvCount)
+WHERE `rank` <= 2;
+```
+
+### 联结查询
+
+常规联结 (Regular Join)
+
+> 目前只支持等值查询、跟标准sql的查询一样，其中包含 `INNER`/`LEFT`/`RIGHT`/`FULL OUTER`
+
+间隔查询 (INTERVAL JOIN)
+
+```sql
+-- 仅支持到现在的时间，不能标明后多长时间
+SELECT `name`, `cn`, window_start, window_end, `rank`
+FROM uvCount u, inputFileTable v
+WHERE u.`name` = v.`name` AND o.order_time BETWEEN s.ship_time - INTERVAL '4' HOUR AND s.ship_time
+```
+
+### 函数
+
+| 函数                     | 含义                                                         |
+| ------------------------ | ------------------------------------------------------------ |
+| Upper()                  | 转大写                                                       |
+| DATE string              | 以yyyy-MM-dd解析字符返回Sql Date类型                         |
+| TIMESTAMP string         | 以yyyy-MM-dd HH:mm:ss[.SSS]解析字符返回Sql TIMESTAMP类型     |
+| CURRENT_TIME / LOCALTIME | 返回本地时间 Sql Time                                        |
+| INTERVAL string range    | 返回时间间隔，string 表示数值<br />range 可以是 DAY / MINUTE / DAT TO HOUR（复合单位）1天 4个小时 |
+
+### UDF 用户自定义数
+
+1. 编写函数：实现用户自定义函数接口
+
+2. 注册函数：
+
+	1. 使用`envTable.createTemporarySystemFunction("MyFunction", MyFunction.class)`注册成为全局系统函数
+	2. 使用`envTable.createTemporaryFunction("MyFunction", MyFunction.class)`注册为当前数据库目录下的函数
+
+3. 调用函数：
+
+	Table Api调用：`envTable.from("MyTable").select(call("MyFunction", $("field1"), $("field2")..))`
+
+#### 标量函数
+
+```java
+// 编写
+public static class MyFunction extends ScalarFunction {
+    public String eval(String s) {
+        return " --" + s + "-- ";
+    }
+}
+// 注册
+tableEnv.createTemporarySystemFunction("MyFunction", MyFunction.class);
+// 使用
+String agg = " " +
+    "SELECT MyFunction(`name`) as `name`, `cn`, window_start, window_end, `rank`\n" +
+    "FROM (SELECT `name`,\n" +
+    "             `cn`,\n" +
+    "             window_start, " +
+    "             window_end, " +
+    "             ROW_NUMBER() OVER(PARTITION BY window_start, window_end ORDER BY `cn` desc) as `rank`\n" +
+    "      FROM " + uvCount + ")\n" +
+    "WHERE `rank` <= 2;";
+```
+
+#### 表函数
+
+ ```java
+ // 编写
+ public static class MyFunction extends ScalarFunction {
+     public String eval(String s) {
+         return " --" + s + "-- ";
+     }
+ }
+ // 注册
+ tableEnv.createTemporarySystemFunction("MyFunction", MyFunction.class);
+ // 使用
+ String agg = " " +
+     "SELECT MyFunction(`name`) as `name`, `cn`, window_start, window_end, `rank`\n" +
+     "FROM (SELECT `name`,\n" +
+     "             `cn`,\n" +
+     "             window_start, " +
+     "             window_end, " +
+     "             ROW_NUMBER() OVER(PARTITION BY window_start, window_end ORDER BY `cn` desc) as `rank`\n" +
+     "      FROM " + uvCount + ")\n" +
+     "WHERE `rank` <= 2;";
+ ```
+
+#### 聚合函数
+
+```java
+// 编写
+public static class MyAggregateFunction extends AggregateFunction<String, List<String>>  {
+
+    public void accumulate(List<String> list, String value) {
+        list.add(value);
+    }
+
+    @Override
+    public String getValue(List<String> list) {
+        StringBuilder builder = new StringBuilder();
+        list.forEach(builder::append);
+        return builder.toString();
+    }
+
+    @Override
+    public List<String> createAccumulator() {
+        return new ArrayList<>();
+    }
+}
+// 注册
+tableEnv.createTemporarySystemFunction("MyAggregateFunction", MyAggregateFunction.class);
+// 使用
+tableEnv.executeSql("select MyAggregateFunction(name) from " + sqlQuery).print();
+```
+
+# Flink CDC
+
+## CDC 概述
+
+**CDC(Change Data Capture)**：核心思想是监测并捕获数据库的变动，将变更按发生时间完成记录下来写入到消息中间件中以供其他服务进行消费。
+
+**CDC 的分类**：主要是以`基于查询`和`基于Binlog`两种
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
