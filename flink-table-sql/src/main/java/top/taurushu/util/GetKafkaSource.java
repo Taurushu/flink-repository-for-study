@@ -20,16 +20,23 @@ public class GetKafkaSource {
 
     }
 
-
-    public static SingleOutputStreamOperator<Event> getFromKafkaSource() {
-        KafkaSource<String> source = KafkaSource.<String>builder()
+    private static KafkaSource<String> getKafkaSource(){
+        return KafkaSource.<String>builder()
                 .setBootstrapServers("node1:9092")
                 .setTopics("flink-generate-topic")
                 .setGroupId("my-group")
                 .setStartingOffsets(OffsetsInitializer.earliest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
-        return env.fromSource(source, WatermarkStrategy.noWatermarks(), "kafka Source")
+    }
+
+    public static SingleOutputStreamOperator<Event> getFromKafkaSource() {
+        return env.fromSource(getKafkaSource(), WatermarkStrategy.noWatermarks(), "kafka Source")
+                .map((MapFunction<String, Event>) Event::new).setParallelism(6);
+    }
+
+    public static SingleOutputStreamOperator<Event> getFromKafkaSource(StreamExecutionEnvironment env) {
+        return env.fromSource(getKafkaSource(), WatermarkStrategy.noWatermarks(), "kafka Source")
                 .map((MapFunction<String, Event>) Event::new).setParallelism(6);
     }
 
