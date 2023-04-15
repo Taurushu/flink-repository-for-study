@@ -3171,55 +3171,204 @@ tableEnv.executeSql("select MyAggregateFunction(name) from " + sqlQuery).print()
 
 **CDC 的分类**：主要是以`基于查询`和`基于Binlog`两种
 
+## 环境搭建
 
+选择使用flinkcdc 2.3.0版本，查询 [FlinkCDC 官网](https://ververica.github.io/flink-cdc-connectors/release-2.3/content/connectors/mysql-cdc)，需要导入一下jar包
 
+![image-20230413104556223](D:/MyNote/0.ProcessOnAndDrawIO/png/flink-cdc-mysql.png)
 
+### 集成开发环境搭建
 
+```xml
+<!-- flink cdc mysql -->
+<dependency>
+  <groupId>com.ververica</groupId>
+  <artifactId>flink-connector-mysql-cdc</artifactId>
+  <!-- 请使用已发布的版本依赖，snapshot版本的依赖需要本地自行编译。 -->
+  <version>2.3.0</version>
+</dependency>
 
+<!-- flink jdbc mysql -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-connector-jdbc</artifactId>
+    <version>${flink.veresion}</version>
+</dependency>
 
+<!-- flink jdbc mysql jar 8.0.27 -->
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.27</version>
+</dependency>
+```
 
+### 集群 Flink Sql CDC 环境搭建
 
+导入一下jar包，导入到 `${FLINK_HOME}/lib` 目录下
 
+> * 下载 -> [flink-sql-connector-mysql-cdc-2.3.0.jar](https://repo1.maven.org/maven2/com/ververica/flink-sql-connector-mysql-cdc/2.3.0/flink-sql-connector-mysql-cdc-2.3.0.jar)
+> * 下载 -> [mysql-connector-java-8.0.27.jar](https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.27/mysql-connector-java-8.0.27.jar)
+> * 下载 -> [flink-connector-jdbc-1.15.3.jar](https://repo1.maven.org/maven2/org/apache/flink/flink-connector-jdbc/1.15.3/flink-connector-jdbc-1.15.3.jar)
 
+### Mysql
 
+环境配置：开启Binary Log -> 需要配置 mysql
 
+```properties
+# -- /etc/my.cnf -- #
+# 1. 配置binlog日志，前缀为mysql-bin
+# 2. 配置binlog日志，按行存储
+# 3. 配置binlog日志，设置开启binlog的db为mydb
+log-bin=mysql-bin
+binlog_format=row
+binlog-do-db=mydb
+# binlog-do-db=mysqlDatabaseName 填写一个，多行
+```
 
+问题：mysql检测到开启了binlog日志无法启动 [mysql 5.7.17 开启二进制日志后启动失败](https://www.jianshu.com/p/ed5b501267d3)
 
+> In MySQL 5.7.2 and earlier, if you start a master server without using --server-id to set its ID, the default ID is 0. In this case, the master refuses connections from all slaves, slaves refuse to connect to the master, and the server sets the server_id system variable to 1. In MySQL 5.7.3 and later, the --server-id must be used if binary logging is enabled, and a value of 0 is not changed by the server. If you specify --server-id without an argument, the effect is the same as using 0. In either case, if the server_id is 0, binary logging takes place, but slaves cannot connect to the master, nor can any other servers connect to it as slaves. (Bug #11763963, Bug #56718)
+>
+> MySQL 5.7.3 版本后，如果要开启二进制日志，必须同时开启 --server-id 选项，server-id 不要设置为0（不支持主从复制），应该设置为 1 或者其他值。
 
+新增配置
 
+```properties
+# -- /etc/my.cnf -- #
+server-id=1
+```
 
+## 测试集群环境
 
+数据来源 -> [基于 Flink CDC 构建 MySQL 和 Postgres 的 Streaming ETL](https://ververica.github.io/flink-cdc-connectors/release-2.3/content/%E5%BF%AB%E9%80%9F%E4%B8%8A%E6%89%8B/mysql-postgres-tutorial-zh.html)
 
+以下仅测试mysql，只是使用的该数据
 
+1. 新增测试数据：创建 `数据库mydb` `表products orders`
 
+```mysql
+-- MySQL
+CREATE DATABASE if not exists mydb;
+USE mydb;
+drop table if exists products;
+CREATE TABLE products (
+  id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(512)
+);
+ALTER TABLE products AUTO_INCREMENT = 101;
 
+INSERT INTO products
+VALUES (default,"scooter","Small 2-wheel scooter"),
+       (default,"car battery","12V car battery"),
+       (default,"12-pack drill bits","12-pack of drill bits with sizes ranging from #40 to #3"),
+       (default,"hammer","12oz carpenter's hammer"),
+       (default,"hammer","14oz carpenter's hammer"),
+       (default,"hammer","16oz carpenter's hammer"),
+       (default,"rocks","box of assorted rocks"),
+       (default,"jacket","water resistent black wind breaker"),
+       (default,"spare tire","24 inch spare tire");
 
+drop table if exists orders;
+CREATE TABLE orders (
+  order_id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_date DATETIME NOT NULL,
+  customer_name VARCHAR(255) NOT NULL,
+  price DECIMAL(10, 5) NOT NULL,
+  product_id INTEGER NOT NULL,
+  order_status BOOLEAN NOT NULL -- Whether order has been placed
+) AUTO_INCREMENT = 10001;
 
+INSERT INTO orders
+VALUES (default, '2020-07-30 10:08:22', 'Jark', 50.50, 102, false),
+       (default, '2020-07-30 10:11:09', 'Sally', 15.00, 105, false),
+       (default, '2020-07-30 12:00:30', 'Edward', 25.25, 106, false);
+```
 
+2. 开启 Flink 集群，这里选择开启基于Yarn的会话集群
 
+```shell
+$FLINK_HOME/bin/yarn-session.sh -nm FlinkServer
+# 日志的结尾会有集群Web地址 例如：> JobManager Web Interface: http://node1:45800
+```
 
+3. 开启 Flink sql client
 
+```shell
+$FLINK_HOME/bin/sql-client.sh
+```
 
+4. 编写Flink sql并提交
 
+```sql
+-- Flink SQL
+CREATE TABLE products (
+    id INT,
+    name STRING,
+    description STRING,
+    PRIMARY KEY (id) NOT ENFORCED
+  ) WITH (
+    'connector' = 'mysql-cdc',
+    'hostname' = 'node1',
+    'port' = '3306',
+    'username' = 'root',
+    'password' = 'shujie',
+    'database-name' = 'mydb',
+    'table-name' = 'products'
+  );
 
+CREATE TABLE orders (
+   order_id INT,
+   order_date TIMESTAMP(0),
+   customer_name STRING,
+   price DECIMAL(10, 5),
+   product_id INT,
+   order_status BOOLEAN,
+   PRIMARY KEY (order_id) NOT ENFORCED
+ ) WITH (
+   'connector' = 'mysql-cdc',
+   'hostname' = 'node1',
+   'port' = '3306',
+   'username' = 'root',
+   'password' = 'shujie',
+   'database-name' = 'mydb',
+   'table-name' = 'orders'
+ );
+ 
+ 
+SELECT o.*, p.name, p.description
+FROM orders AS o
+LEFT JOIN products AS p ON o.product_id = p.id
+```
 
+## 测试集成开发环境
 
+```java
+public static void main(String[] args) throws Exception {
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
 
+    MySqlSource<String> build = MySqlSource.<String>builder()
+        .hostname("192.168.32.151")
+        .port(3306)
+        .username("root")
+        .password("shujie")
+        .databaseList("mydb")
+        .tableList()
+        .deserializer(new StringDebeziumDeserializationSchema())
+        .startupOptions(StartupOptions.initial())
+        .build();
 
+    DataStreamSource<String> mysqlSource = env.fromSource(build, WatermarkStrategy.noWatermarks(), "mysqlSource");
+    mysqlSource.print();
+    env.execute();
+}
+```
 
+或者打包上传运行
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```shell
+bin/flink run -c top.taurushu.init.NewStart ./flink-run-cdc-1.0-SNAPSHOT.jar
+```
 
