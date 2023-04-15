@@ -2350,7 +2350,7 @@ env.setStateBackend(new EmbeddedRocksDBStateBackend()); // rocksDB
 	* 但是如果缓存的数据过多，等待时间过长，数据量会越来越大，导致数据反压
 	* Flink1.11之后给出了非对齐检查点保存方法，将未处理的缓冲数据也保存在检查点中，进行保存但检查点会保存更多信息
 
-![image-20230410113345539](png/%E5%88%86%E7%95%8C%E7%BA%BF%E5%AF%B9%E9%BD%90.png)
+![image-20230410113345539](png/分界线对齐.png)
 
 4. 检查点配置
 
@@ -3175,7 +3175,7 @@ tableEnv.executeSql("select MyAggregateFunction(name) from " + sqlQuery).print()
 
 选择使用flinkcdc 2.3.0版本，查询 [FlinkCDC 官网](https://ververica.github.io/flink-cdc-connectors/release-2.3/content/connectors/mysql-cdc)，需要导入一下jar包
 
-![image-20230413104556223](D:/MyNote/0.ProcessOnAndDrawIO/png/flink-cdc-mysql.png)
+![image-20230413104556223](png/flink-cdc-mysql.png)
 
 ### 集成开发环境搭建
 
